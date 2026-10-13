@@ -243,6 +243,18 @@ details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; bac
 .bRow .lbar { height: 8px; }
 .howto { margin: 4px 0 12px; font-size: 14px; }
 .howto p { margin: 8px 0 0; color: var(--ink); line-height: 1.6; }
+.netBox { display: flex; flex-direction: column; gap: 6px; }
+.netBox .lbl { color: var(--muted); font-size: 13px; }
+.netBox .big { font-family: var(--f-num); font-size: clamp(26px, 8.5vw, 32px); font-weight: 700; color: var(--jade); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.netBox .big.up { color: var(--warn); }
+.netGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.netGrid > div { display: flex; flex-direction: column; gap: 2px; background: var(--chip); border-radius: 10px; padding: 8px 12px; min-width: 0; }
+.netGrid .num { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.netGrid small { color: var(--muted); font-size: 11px; line-height: 1.35; }
+.netBox .hint { margin: 2px 0 0; font-size: 12px; }
+.netBox .hint b { white-space: nowrap; color: var(--ink); font-size: inherit; }
+body.privacy :is(.netGrid .num, .netBox .hint b, .ccTotal .big, .ccTotal .num) { filter: blur(7px); }
+.ccard .src { margin-left: 4px; font-size: 10px; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 0 3px; vertical-align: 1px; }
 .ccTotal { display: flex; flex-direction: column; gap: 6px; }
 .ccTotal .lrow { display: flex; justify-content: space-between; gap: 8px; }
 .ccTotal .lbl { color: var(--muted); font-size: 13px; }
@@ -856,13 +868,20 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       <label class="w2">尾号<input class="input" id="aLast4" inputmode="numeric" maxlength="4" placeholder="1234"></label>
       <label class="w2 cc">账单日<input class="input" id="aBill" inputmode="numeric" maxlength="2" placeholder="几号"></label>
       <label class="w2 cc">还款日<input class="input" id="aDue" inputmode="numeric" maxlength="2" placeholder="几号"></label>
-      <label class="cc">信用额度（元）<input class="input" id="aLimit" inputmode="decimal" placeholder="例如 20000"></label>
+      <label class="cc">本期账单（元）<input class="input" id="aStmt" inputmode="decimal" placeholder="银行 App 显示的"></label>
       <label class="cc">剩余可用额度（元）<input class="input" id="aAvail" inputmode="decimal" placeholder="银行 App 显示的"></label>
-      <p class="hint cc full" style="margin:-4px 0 0">剩余可用额度填银行 App 里现在显示的数，之后记的账会在它基础上自动加减，比只靠记账推算准。隔一阵对一下就行。</p>
+      <label class="check cc full"><input type="checkbox" id="aStmtPaid">本期账单已经还清</label>
+      <label class="cc full">信用额度（元）<input class="input" id="aLimit" inputmode="decimal" placeholder="不填就按 本期账单 + 剩余额度 自动算"></label>
+      <p class="hint cc full" id="aLimitHint" style="margin:-4px 0 0">剩余可用额度填银行 App 里现在显示的数，之后记的账会在它基础上自动加减。隔一阵对一下就行。</p>
       <p class="err full" id="acctErr" hidden></p>
       <button type="submit" class="btn full" id="acctSubmit">添加支付方式</button>
       <button type="button" class="btn full" id="acctCancel" hidden>取消修改</button>
     </form>
+  </section>
+  <section class="panel">
+    <div class="phead"><h2>微信、支付宝付款默认用</h2></div>
+    <p class="note" style="margin-top:0">在微信、支付宝里付款，钱一般是从哪张卡扣的？记账时选了「微信」「支付宝」平台，或者一句话里说了“微信”“支付宝”，支付方式会自动换成这里选的卡。选「跟着上次」就是上次在这个平台用的哪张，就用哪张。</p>
+    <div class="sform" id="platDefForm" style="margin-top:4px"></div>
   </section>
   <section class="panel" id="budPanel">
     <div class="phead"><h2>每月预算</h2><span class="hint">不填就是不限制</span></div>
@@ -1116,6 +1135,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   const docState = () => ({
     categories: data.settings.categories, platforms: data.settings.platforms, incomeCats: data.settings.incomeCats,
     budget: data.budget || {}, paid: data.paid || {}, recurDone: data.recurDone || {}, tagList: data.tagList || [], fxIgnore: data.fxIgnore || [], checkins: data.checkins || {}, rates: data.rates || {},
+    platDefault: data.platDefault || {}, platLast: data.platLast || {},
     butler: data.butler ? { name: data.butler.name, addr: data.butler.addr, model: data.butler.model, persona: data.butler.persona, style: data.butler.style } : {}
   });
   function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
@@ -1200,7 +1220,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (ch && ch.doc && ch.doc.updatedAt > (data.docUpdatedAt || 0)) {
         const d = ch.doc.data || {};
         ['categories', 'platforms', 'incomeCats'].forEach((k) => { if (Array.isArray(d[k]) && d[k].length) data.settings[k] = d[k]; });
-        ['budget', 'paid', 'recurDone', 'tagList', 'fxIgnore', 'checkins', 'rates'].forEach((k) => { if (d[k] != null) data[k] = d[k]; });
+        ['budget', 'paid', 'recurDone', 'tagList', 'fxIgnore', 'checkins', 'rates', 'platDefault', 'platLast'].forEach((k) => { if (d[k] != null) data[k] = d[k]; });
         if (d.butler) data.butler = Object.assign(data.butler || {}, d.butler);
         data.docUpdatedAt = ch.doc.updatedAt; sy.docHash = hashStr(JSON.stringify(docState())); sy.docDirty = false; n++;
       }
@@ -1784,12 +1804,14 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     }
     const c = cycles(a);
     const cur = spentIn(a.id, c.cur.start, c.cur.end);
-    const prev = spentIn(a.id, c.prev.start, c.prev.end);
+    // 已出的账单：填过银行的数就用银行的（很多消费可能没记），否则按记账合计
+    const bankStmt = a.stmtCents != null && a.stmtEnd === fmt(c.prev.end);
+    const prev = bankStmt ? a.stmtCents : spentIn(a.id, c.prev.start, c.prev.end);
     const prevLeft = c.prev.due ? daysBetween(c.today, c.prev.due) : -1;
     const prevPaid = (data.paid || {})[a.id] === fmt(c.prev.end);
     const prevUnpaid = prevLeft >= 0 && !prevPaid && prev > 0;
     const used = cur + (prevUnpaid ? prev : 0);
-    const st = { c, cur, prev, prevLeft, prevPaid, used, avail: a.limitCents ? a.limitCents - used : null };
+    const st = { c, cur, prev, prevLeft, prevPaid, used, bankStmt, avail: a.limitCents ? a.limitCents - used : null };
     return calibrate(a, st);
   }
   // 按银行 App 显示的“剩余可用额度”校准：以那一刻为准，之后记的消费往下扣、退款和还款往回加。
@@ -1872,21 +1894,42 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       const passed = Math.min(total, daysBetween(c.cur.start, c.today) + 1);
       const toBill = daysBetween(c.today, c.cur.end);
       let due = '';
+      // 叫法和银行 App 一致：已经出的那期叫“本期账单”，还没出账的叫“未出账”
+      const src = st.bankStmt ? '<small class="src">银行</small>' : '';
       if (st.prevLeft >= 0) {
         const when = `${md(c.prev.due)} 还款 · ${st.prevLeft === 0 ? '就是今天' : '还剩 ' + st.prevLeft + ' 天'}`;
-        if (!st.prev) due = `<span>上期账单 <b class="num">${money(0)}</b>，不用还</span>`;
-        else if (st.prevPaid) due = `<span>上期账单 <b class="num">${money(st.prev)}</b> 已还清</span><button type="button" class="mini" data-unpaid="${id}">撤销</button>`;
-        else due = `<span>上期账单 <b class="num">${money(st.prev)}</b></span><span class="pill${st.prevLeft <= 5 ? ' warn' : ''}">${when}</span><button type="button" class="mini" data-paid="${id}" data-end="${fmt(c.prev.end)}">已还清</button>`;
-      } else if (c.cur.due) due = `<span>上期还款日已过</span><span class="pill">本期 ${md(c.cur.due)} 还款</span>`;
+        if (!st.prev) due = `<span>本期账单 <b class="num">${money(0)}</b>${src}，不用还</span>`;
+        else if (st.prevPaid) due = `<span>本期账单 <b class="num">${money(st.prev)}</b>${src} 已还清</span><button type="button" class="mini" data-unpaid="${id}">撤销</button>`;
+        else due = `<span>本期账单 <b class="num">${money(st.prev)}</b>${src}</span><span class="pill${st.prevLeft <= 5 ? ' warn' : ''}">${when}</span><button type="button" class="mini" data-paid="${id}" data-end="${fmt(c.prev.end)}">已还清</button>`;
+      } else if (st.prev && !st.prevPaid) due = `<span>本期账单 <b class="num">${money(st.prev)}</b>${src}</span><span class="pill warn">${c.prev.due ? md(c.prev.due) + ' ' : ''}已过还款日</span><button type="button" class="mini" data-paid="${id}" data-end="${fmt(c.prev.end)}">已还清</button>`;
+      else if (st.prev) due = `<span>本期账单 <b class="num">${money(st.prev)}</b>${src} 已还清</span>${c.cur.due ? `<span class="pill">下期 ${md(c.cur.due)} 还款</span>` : ''}`;
+      else if (c.cur.due) due = `<span>本期账单已过还款日</span><span class="pill">下期 ${md(c.cur.due)} 还款</span>`;
       return `<div class="ccard" data-card="${id}">
         ${head}<div class="spent">${money(st.cur)}</div>
-        <div class="sub">本期 ${md(c.cur.start)} – ${md(c.cur.end)}</div><div class="sub r">${toBill === 0 ? '今天出账' : toBill + ' 天后出账'}</div>
+        <div class="sub">未出账 ${md(c.cur.start)} – ${md(c.cur.end)}</div><div class="sub r">${toBill === 0 ? '今天出账' : toBill + ' 天后出账'}</div>
         <div class="bar" aria-hidden="true"><i style="width:${Math.round(passed / total * 100)}%"></i></div>
         ${due ? `<div class="due">${due}</div>` : ''}
         ${limitHtml(a, st)}</div>`;
     }).join('');
   }
+  function renderPlatDefaults() {
+    const box = $('#platDefForm'); if (!box || box.contains(document.activeElement)) return;
+    const accts = S().accounts.filter((a) => !a.archived);
+    const sorted = accts.filter((a) => a.type === 'credit').concat(accts.filter((a) => a.type !== 'credit')); // 信用卡排前面
+    box.innerHTML = ['微信', '支付宝'].map((p) => {
+      const cur = (data.platDefault || {})[p] || '', last = (data.platLast || {})[p];
+      const lastTxt = last && accountOf(last) ? `（现在是 ${accountLabel(last)}）` : '';
+      return `<label>${p}付款用<select class="input" data-plat-def="${p}"><option value="">跟着上次${esc(lastTxt)}</option>${sorted.map((a) => `<option value="${esc(a.id)}"${a.id === cur ? ' selected' : ''}>${esc(accountLabel(a.id))}</option>`).join('')}</select></label>`;
+    }).join('');
+  }
+  $('#platDefForm').addEventListener('change', (ev) => {
+    const p = ev.target.dataset.platDef; if (!p) return;
+    data.platDefault = data.platDefault || {};
+    if (ev.target.value) data.platDefault[p] = ev.target.value; else delete data.platDefault[p];
+    persist(); toast(ev.target.value ? `以后${p}付款默认记到 ${accountLabel(ev.target.value)}` : `${p}付款跟着上次用的卡`);
+  });
   function renderSettings() {
+    renderPlatDefaults();
     const s = S();
     $('#acctList').innerHTML = s.accounts.filter((a) => !a.archived).map((a) => `<div class="acct"><div><div>${esc(a.name)}${a.last4 ? ` <span class="num">·${esc(a.last4)}</span>` : ''}${a.sample ? '<span class="tag">示例</span>' : ''}</div>
       <div class="m">${TYPE_LABEL[a.type] || ''}${a.type === 'credit' && a.billDay ? ` · 每月 ${a.billDay} 号出账，${a.dueDay || '?'} 号还款` : ''}${a.limitCents ? ` · 额度 ${money(a.limitCents)}` : ''}</div></div>
@@ -1913,7 +1956,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   // ---------- 记一笔 ----------
   function resetForm() {
     if (state.editing && state.stickyTags) { state.sel.tags = state.stickyTags; state.stickyTags = null; } // 修改完恢复原来选中的标签
-    state.editing = null; state.confirmDelete = false; state.fkind = 'expense'; state.moreOpen = false;
+    state.editing = null; state.confirmDelete = false; state.fkind = 'expense'; state.moreOpen = false; state.acctTouched = false;
     $('#fAmount').value = ''; $('#fNote').value = ''; $('#fDate').value = today(); $('#fReimb').checked = false; $('#fAA').value = '';
     if (state.stickyCur) { state.sel.cur = state.stickyCur; state.stickyCur = null; }
     syncCur();
@@ -2008,6 +2051,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     } else {
       rec.id = rid(); rec.createdAt = Date.now();
       data.expenses.push(rec);
+      const learned = k === 'expense' && rememberPlat(rec.platform, rec.account); // 记住这个平台用的卡
       if (!persist()) { data.expenses.pop(); return; }
       savePrefs();
       showOcr(false); state.pendingCard = null;
@@ -2017,6 +2061,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
         const st = cardStatus(ac);
         extra = `，${ac.name.replace(/信用卡$/, '')}${ac.last4 ? '·' + ac.last4 : ''} ${st.avail < 0 ? '已超额度 ' + money(-st.avail) : '还可用 ' + money(st.avail)}`;
       }
+      if (learned && ac && ac.type !== 'wallet') extra += `。以后选「${rec.platform}」会自动用这张卡`;
       toast(`已记下 ${money(rec.cents)}${extra}`, undoAdd([rec.id]));
       resetForm(); render();
       $('#fAmount').blur();
@@ -2126,7 +2171,13 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if (b.dataset.yr) { state.year += +b.dataset.yr; renderYear(); window.scrollTo(0, 0); return; }
     if (b.dataset.goalDep || b.dataset.goalWd) { state.goalForm = null; state.goalDep = { id: b.dataset.goalDep || b.dataset.goalWd, mode: b.dataset.goalDep ? 'dep' : 'wd' }; renderGoals(); setTimeout(() => { const i = $('#gAmt'); if (i) i.focus(); }, 30); return; }
     if (b.dataset.goalEdit) { state.goalDep = null; state.goalForm = { id: b.dataset.goalEdit }; renderGoals(); return; }
-    if (b.dataset.k && b.closest('#form')) { state.sel[b.dataset.k] = b.dataset.v; if (!state.editing) savePrefs(); renderAdd(); arrangeHome(); return; }
+    if (b.dataset.k && b.closest('#form')) {
+      state.sel[b.dataset.k] = b.dataset.v;
+      if (b.dataset.k === 'account') state.acctTouched = true;
+      // 选了平台、这笔还没手动选过支付方式：换成这个平台常用的卡
+      if (b.dataset.k === 'platform' && !state.acctTouched && !state.editing) { const pc = platCard(b.dataset.v); if (pc) state.sel.account = pc.id; }
+      if (!state.editing) savePrefs(); renderAdd(); arrangeHome(); return;
+    }
     if (b.dataset.swEdit) { swOpen = null; startEdit(b.dataset.swEdit); return; }
     if (b.dataset.swDel) {
       const id = b.dataset.swDel, gone = data.expenses.find((e) => e.id === id);
@@ -2227,6 +2278,24 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   }
 
   // ---------- 设置 ----------
+  // 信用额度没填：总额度 = 剩余可用 + 还占着的钱（本期账单没还就算上）。银行额度一般是整千，取整到千位
+  const yuanOf = (sel) => { const v = $(sel).value.trim().replace(/[,，\s¥￥元]/g, ''); return /^\d+(\.\d{1,2})?$/.test(v) ? Math.round(+v * 100) : null; };
+  function autoLimit() {
+    const av = yuanOf('#aAvail'); if (av == null) return null;
+    const stmt = yuanOf('#aStmt') || 0, paid = $('#aStmtPaid').checked;
+    const raw = av + (paid ? 0 : stmt);
+    return { raw, est: Math.ceil(raw / 100000) * 100000, av, stmt, paid };
+  }
+  function syncLimitHint() {
+    const h = $('#aLimitHint'), a = autoLimit();
+    if ($('#aLimit').value.trim() || !a || $('#aType').value !== 'credit') { h.textContent = '剩余可用额度填银行 App 里现在显示的数，之后记的账会在它基础上自动加减。隔一阵对一下就行。'; $('#aLimit').placeholder = '不填就按 本期账单 + 剩余额度 自动算'; return; }
+    $('#aLimit').placeholder = `自动：${(a.est / 100).toFixed(0)}`;
+    h.textContent = a.paid || !a.stmt
+      ? `本期账单${a.stmt ? '已还清' : '没填'}，按剩余可用 ${money(a.av)} 估算，取整为 ${money(a.est)}。出账后新刷的钱银行页面一般看不到，所以可能偏少，知道准确额度就填上。`
+      : `本期账单 ${money(a.stmt)} + 剩余可用 ${money(a.av)} = ${money(a.raw)}，银行额度一般是整千，按 ${money(a.est)} 算。不对就直接填。`;
+  }
+  ['#aAvail', '#aStmt', '#aLimit'].forEach((s) => $(s).addEventListener('input', syncLimitHint));
+  $('#aStmtPaid').addEventListener('change', syncLimitHint);
   function syncTypeFields() { const credit = $('#aType').value === 'credit'; $$('#acctForm .cc').forEach((l) => { l.hidden = !credit; }); }
   $('#aType').addEventListener('change', syncTypeFields);
   syncTypeFields();
@@ -2235,8 +2304,11 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const err = $('#acctErr');
     const name = $('#aName').value.trim(), type = $('#aType').value, last4 = $('#aLast4').value.trim();
     const bill = $('#aBill').value.trim(), due = $('#aDue').value.trim();
-    const lim = $('#aLimit').value.trim().replace(/[,，\s¥￥元]/g, '');
+    let lim = $('#aLimit').value.trim().replace(/[,，\s¥￥元]/g, '');
     const av = $('#aAvail').value.trim().replace(/[,，\s¥￥元]/g, '');
+    const stmtV = $('#aStmt').value.trim().replace(/[,，\s¥￥元]/g, '');
+    const auto = type === 'credit' && !lim ? autoLimit() : null;
+    if (auto) lim = String(auto.est / 100);
     const okDay = (v) => v === '' || (/^\d{1,2}$/.test(v) && +v >= 1 && +v <= 31);
     let msg = '';
     if (!name) msg = '请填写名称，例如“招商银行信用卡”';
@@ -2244,6 +2316,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     else if (type === 'credit' && (!okDay(bill) || !okDay(due))) msg = '账单日和还款日填 1–31 的数字';
     else if (type === 'credit' && lim && !/^\d+(\.\d{1,2})?$/.test(lim)) msg = '额度填数字，例如 20000';
     else if (type === 'credit' && av && !/^-?\d+(\.\d{1,2})?$/.test(av)) msg = '剩余可用额度填数字，例如 15000';
+    else if (type === 'credit' && stmtV && !/^\d+(\.\d{1,2})?$/.test(stmtV)) msg = '本期账单填数字，例如 2732.81';
     else if (type === 'credit' && av && !lim) msg = '填了剩余额度，也要填总的信用额度';
     else if (type === 'credit' && av && +av > +lim) msg = '剩余可用额度不能比信用额度还多';
     err.textContent = msg; err.hidden = !msg; if (msg) return;
@@ -2258,24 +2331,29 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (cur === cents && old) { f.availCents = old.availCents; f.availAt = old.availAt; f.availTs = old.availTs; }
       else { f.availCents = cents; f.availAt = today(); f.availTs = Date.now(); }
     }
+    if (type === 'credit' && stmtV !== '') f.stmtCents = Math.round(+stmtV * 100);
+    const paidChk = $('#aStmtPaid').checked;
+    const tail = auto ? `，信用额度按 ${money(auto.est)} 算` : '';
     if (state.editingAcct) {
       const a = accountOf(state.editingAcct);
-      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents', 'availCents', 'availAt', 'availTs'].forEach((k) => { delete a[k]; }); Object.assign(a, f); markOcrPaid(a); }
-      persist(); resetAcctForm(); toast(`已保存 ${name}`); render();
+      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents', 'availCents', 'availAt', 'availTs', 'stmtCents', 'stmtEnd'].forEach((k) => { delete a[k]; }); Object.assign(a, f); applyStmt(a, paidChk); }
+      persist(); resetAcctForm(); toast(`已保存 ${name}${tail}`); render();
       return;
     }
     const a = Object.assign({ id: rid() }, f);
-    S().accounts.push(a); markOcrPaid(a); persist();
+    S().accounts.push(a); applyStmt(a, paidChk); persist();
     state.sel.account = a.id; savePrefs();
     resetAcctForm();
-    toast(`已添加 ${name}`); render();
+    toast(`已添加 ${name}${tail}`); render();
   });
-  // 截图里显示上期账单已经还清（剩余应还 0），保存后顺手标记，免得首页提醒还款
-  function markOcrPaid(a) {
-    const p = state.acctOcrPaid; state.acctOcrPaid = null;
-    if (!p || !a || a.type !== 'credit' || !a.billDay || !a.dueDay) return;
-    const st = cardStatus(a);
-    if (st.c && st.prev > 0 && !st.prevPaid) { data.paid = data.paid || {}; data.paid[a.id] = fmt(st.c.prev.end); }
+  // 本期账单（银行的数）记在“上一个账单周期”上；勾了已还清就标记这一期已还
+  function applyStmt(a, paid) {
+    if (a.type !== 'credit' || !a.billDay) return;
+    const c = cycles(a), end = fmt(c.prev.end);
+    if (a.stmtCents != null) a.stmtEnd = end;
+    data.paid = data.paid || {};
+    if (paid) data.paid[a.id] = end;
+    else if (data.paid[a.id] === end) delete data.paid[a.id];
   }
   // ---------- 截图识别信用卡 ----------
   function parseCardText(raw) {
@@ -2284,7 +2362,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const AMT = '¥?(\\d{1,3}(?:,\\d{3})+(?:\\.\\d{1,2})?|\\d+(?:\\.\\d{1,2})?)';
     const out = {};
     let m = flat.match(/([一-鿿]{2,8}?银行)/);
-    if (m) out.bank = m[1].replace(/^.*(?=(中国|招商|工商|建设|农业|交通|光大|民生|兴业|浦发|中信|华夏|广发|平安|邮储|北京|上海|宁波|江苏|浙商|南京|杭州)[一-鿿]*银行$)/, '');
+    if (m) out.bank = normBank(m[1]);
     if ((m = flat.match(/[\[【(]\s*(\d{4})\s*[\]】)]/) || flat.match(/(?:尾号|末四位|卡号后四位)[:为是]?(\d{4})/) || flat.match(/\*{2,}\s*(\d{4})/))) out.last4 = m[1];
     if ((m = flat.match(/(?:账单日|出账日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:\d{1,2}[月\-\/])?(\d{1,2})日?/))) out.billDay = +m[1];
     if ((m = flat.match(/(\d{1,2})月(\d{1,2})日?(?:到期|前还款)/) || flat.match(/(?:最后还款日|到期还款日|还款日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:(\d{1,2})[月\-\/])?(\d{1,2})/))) out.dueDay = +m[2];
@@ -2321,33 +2399,29 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (p.last4) $('#aLast4').value = p.last4;
       if (p.billDay) $('#aBill').value = p.billDay;
       if (p.dueDay) $('#aDue').value = p.dueDay;
-      // 没写总额度：总额度 = 剩余可用 + 已经占用的。已占用 = 没还的账单 + 出账后新刷的（截图看不到），按银行习惯取整到千位估一个
-      let est = 0;
-      if (!p.limit && p.avail) {
-        const used = p.left > 0 ? p.left : 0;
-        est = Math.ceil((p.avail + used) / 100000) * 100000;
-        $('#aLimit').value = String(est / 100);
-      }
       if (p.limit) $('#aLimit').value = String(p.limit / 100);
       if (p.avail != null) $('#aAvail').value = String(p.avail / 100);
-      state.acctOcrPaid = p.left === 0 && p.stmt > 0;
-      const got = [p.bank && p.bank, p.last4 && `尾号 ${p.last4}`, p.billDay && `每月 ${p.billDay} 号出账`, p.dueDay && `${p.dueDay} 号还款`, p.limit && `额度 ${money(p.limit)}`].filter(Boolean);
-      const miss = [!p.billDay && '账单日', !p.dueDay && '还款日', !p.limit && !est && '信用额度'].filter(Boolean);
+      if (p.stmt != null) $('#aStmt').value = String(p.stmt / 100);
+      $('#aStmtPaid').checked = p.left === 0 && p.stmt > 0;
+      syncLimitHint();
+      const auto = !$('#aLimit').value.trim() ? autoLimit() : null; // 没有总额度：按 本期账单 + 剩余额度 自动算
+      const got = [p.bank && p.bank, p.last4 && `尾号 ${p.last4}`, p.billDay && `每月 ${p.billDay} 号出账`, p.dueDay && `${p.dueDay} 号还款`, p.limit && `额度 ${money(p.limit)}`, p.avail != null && `剩余可用 ${money(p.avail)}`].filter(Boolean);
+      const miss = [!p.billDay && '账单日', !p.dueDay && '还款日', !$('#aLimit').value.trim() && !auto && '信用额度'].filter(Boolean);
       let t = `认出：${got.map(esc).join('，')}。`;
       if (p.stmt != null) t += `本期账单 ${money(p.stmt)}${p.left === 0 ? '，已经还清' : p.left > 0 ? `，还剩 ${money(p.left)} 没还` : ''}。`;
       if (miss.length) t += `<br>还差 <b>${miss.join('、')}</b>，补上就行。`;
-      if (est) t += `<br>截图里没有总额度，按 剩余可用 ${money(p.avail)}${p.left > 0 ? ` + 未还 ${money(p.left)}` : ''} 估算为 <b>${money(est)}</b>（出账后新刷的钱截图里看不到，所以是估的）。不对的话改一下，准确数字在银行 App 的「额度管理」里。`;
+      if (auto) t += `<br>截图里没有总额度，${esc($('#aLimitHint').textContent)}`;
       t += same ? '<br>这张卡之前加过了，已经切换成修改它，核对后点「保存修改」。' : '<br>核对一下，点「添加支付方式」。';
       say(t);
       $('#acctForm').scrollIntoView({ block: 'center' });
-      if (!p.limit) setTimeout(() => $('#aLimit').focus(), 50);
     } catch (e) {
       say(navigator.onLine === false ? '识别组件还没下载过，第一次使用需要联网。' : '识别没有完成，请检查网络后再试一次。');
     } finally { ocrBusy = false; }
   });
   function resetAcctForm() {
     state.editingAcct = null;
-    ['#aName', '#aLast4', '#aBill', '#aDue', '#aLimit', '#aAvail'].forEach((k) => { $(k).value = ''; });
+    ['#aName', '#aLast4', '#aBill', '#aDue', '#aLimit', '#aAvail', '#aStmt'].forEach((k) => { $(k).value = ''; });
+    $('#aStmtPaid').checked = false; syncLimitHint();
     $('#acctSubmit').textContent = '添加支付方式'; $('#acctCancel').hidden = true; $('#acctErr').hidden = true;
   }
   function startAcctEdit(id) {
@@ -2358,12 +2432,14 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $('#aLimit').value = a.limitCents ? String(a.limitCents / 100) : '';
     // 校准过的显示“现在”的剩余额度（银行数 + 之后的记账），没校准过的留空，免得把推算值当成银行数
     $('#aAvail').value = a.type === 'credit' && a.availCents != null && a.limitCents ? String(cardStatus(a).avail / 100) : '';
-    syncTypeFields();
+    $('#aStmt').value = a.stmtCents != null ? String(a.stmtCents / 100) : '';
+    $('#aStmtPaid').checked = a.type === 'credit' && a.billDay ? (data.paid || {})[a.id] === fmt(cycles(a).prev.end) : false;
+    syncTypeFields(); syncLimitHint();
     $('#acctSubmit').textContent = '保存修改'; $('#acctCancel').hidden = false; $('#acctErr').hidden = true;
     $('#acctForm').scrollIntoView({ block: 'center' });
     setTimeout(() => $(a.type === 'credit' && !a.limitCents ? '#aLimit' : '#aName').focus(), 50);
   }
-  $('#acctCancel').addEventListener('click', () => { state.acctOcrPaid = null; $('#acctOcrMsg').hidden = true; resetAcctForm(); });
+  $('#acctCancel').addEventListener('click', () => { $('#acctOcrMsg').hidden = true; resetAcctForm(); });
   $('#v-settings').addEventListener('click', (ev) => {
     const b = ev.target.closest('button'); if (!b) return;
     const s = S();
@@ -2508,6 +2584,14 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     return s;
   }
   const stripLabel = (t) => t.replace(/^.*(付款方式|支付方式|扣款方式|付款卡|支付工具|来自)/, '');
+  // 银行名常被认错一两个字（“中信和银行”），按常见银行纠正
+  const BANKS = ['中信', '招商', '工商', '建设', '农业', '交通', '光大', '民生', '兴业', '浦发', '华夏', '广发', '平安', '邮储', '邮政储蓄', '北京', '上海', '宁波', '江苏', '浙商', '南京', '杭州', '徽商', '渤海', '恒丰'];
+  function normBank(name) {
+    if (!name) return name;
+    if (/中国银行/.test(name)) return '中国银行';
+    const k = BANKS.find((b) => name.includes(b));
+    return k ? (k === '邮政储蓄' ? '邮储' : k) + '银行' : name;
+  }
   function parseText(raw) {
     const s = normText(raw);
     const flat = s.replace(/\s+/g, '');
@@ -2536,11 +2620,12 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       bank = stripLabel(m[1]);
       const b = bank.match(/([一-鿿]{2,6}银行)$/);
       if (b) bank = b[1];
+      bank = normBank(bank);
     }
     if (!last4 && (m = flat.match(/(?:尾号|卡号后四位|末四位)(?:为|是)?(\d{4})/))) {
       last4 = m[1]; kind = /借记卡|储蓄卡/.test(flat) ? '储蓄卡' : '信用卡';
     }
-    if (!bank && (m = stripLabel(flat).match(/([一-鿿]{2,6}?银行)/))) bank = m[1];
+    if (!bank && (m = stripLabel(flat).match(/([一-鿿]{2,6}?银行)/))) bank = normBank(m[1]);
     const accts = S().accounts.filter((a) => !a.archived);
     let acct = null;
     if (last4) {
@@ -2645,6 +2730,34 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       return c;
     } finally { URL.revokeObjectURL(url); }
   }
+  // 账单详情页中间的大号金额（-103.55）字太大，正常识别会漏掉。
+  // 把图缩小到 600 宽、只认数字、按零散文字找，取字号最大的那个金额
+  async function bigAmount(file) {
+    const w = ocrWorker; if (!w) return null;
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const c = document.createElement('canvas'); const s = 600 / img.naturalWidth;
+      c.width = 600; c.height = Math.round(img.naturalHeight * s);
+      const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
+      const d = ctx.getImageData(0, 0, c.width, c.height), px = d.data; let tot = 0;
+      for (let i = 0; i < px.length; i += 4) { const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2]; px[i] = px[i + 1] = px[i + 2] = g; tot += g; }
+      const inv = tot / (px.length / 4) < 110;
+      for (let i = 0; i < px.length; i += 4) { const g = inv ? 255 - px[i] : px[i]; px[i] = px[i + 1] = px[i + 2] = g < 175 ? 0 : 255; }
+      ctx.putImageData(d, 0, 0);
+      await w.setParameters({ tessedit_char_whitelist: '0123456789.,-+', tessedit_pageseg_mode: '11' });
+      const r = await w.recognize(c);
+      const top = r.data.words
+        .filter((x) => /^[-+]?\d[\d,]*\.\d{2}$/.test(x.text.trim()) && x.bbox.y0 > c.height * 0.05) // 跳过顶部状态栏的时间
+        .sort((a, b) => (b.bbox.y1 - b.bbox.y0) - (a.bbox.y1 - a.bbox.y0))[0];
+      const v = top ? parseFloat(top.text.replace(/[,+\-\s]/g, '')) : 0;
+      return v > 0 && v < 1e7 ? Math.round(v * 100) : null;
+    } catch (e) { return null; }
+    finally {
+      URL.revokeObjectURL(url);
+      try { await w.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }); } catch (e) {}
+    }
+  }
   async function ensureOcr() {
     if (!window.Tesseract) await loadScript(TESS_URL);
     if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('chi_sim+eng', 1, { logger: (m) => { if (ocrProgress) ocrProgress(m); } });
@@ -2671,7 +2784,15 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
         setStatus(`认出 ${items.length} 笔，正在逐条核对金额和日期…`, 0.97);
         await refineList(items, canvas);
         showList(buildListRows(items, res.data.text), res.data.text, file);
-      } else applyParsed(parseText(res.data.text), res.data.text);
+      } else {
+        const p = parseText(res.data.text);
+        if (!p.cents) { // 详情页的大号金额常被漏掉：单独再认一次
+          setStatus('金额的字太大，正在单独认一下…', 0.97);
+          const big = await bigAmount(file);
+          if (big) p.cents = big;
+        }
+        applyParsed(p, res.data.text);
+      }
     } catch (e) {
       setStatus(navigator.onLine === false ? '识别组件还没下载过，第一次使用需要联网。' : '识别没有完成：识别组件下载失败或图片打不开。请检查网络后再试一次。', null);
     } finally { ocrBusy = false; }
@@ -2791,7 +2912,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const cats = S().categories, ic = S().incomeCats;
     const opt = (list, v) => list.map((c) => `<option${c === v ? ' selected' : ''}>${esc(c)}</option>`).join('');
     const accts = S().accounts.filter((a) => !a.archived);
-    const def = lb.account || (lb.src && (accts.find((a) => a.name.includes(lb.src)) || {}).id) || state.sel.account;
+    const def = lb.account || (lb.src && ((platCard(lb.src) || {}).id || (accts.find((a) => a.name.includes(lb.src)) || {}).id)) || state.sel.account;
     const dups = lb.rows.filter((r) => r.dup).length, guess = lb.rows.filter((r) => r.dateGuess).length;
     const n = lb.rows.filter((r) => r.on).length;
     $('#ocrBatch').hidden = false;
@@ -3710,6 +3831,22 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   }
   const BANK_ALIAS = [['招行', '招商'], ['工行', '工商'], ['建行', '建设'], ['农行', '农业'], ['中行', '中国银行'], ['交行', '交通'], ['浦发', '浦发'], ['广发', '广发'], ['邮储', '邮政']];
   const shortName = (name) => name.replace(/中国|银行|信用卡|储蓄卡|借记卡|余额|零钱/g, '');
+  // 平台 → 常用卡：微信、支付宝只是“在哪付”，钱多半是从信用卡走的。
+  // 设置里指定的优先；没指定就用这个平台上次用的卡
+  function platCard(p) {
+    if (!p) return null;
+    const pick = (id) => { const a = id && accountOf(id); return a && !a.archived ? a : null; };
+    return pick((data.platDefault || {})[p]) || pick((data.platLast || {})[p]);
+  }
+  function rememberPlat(p, acctId) {
+    if (!p || !acctId) return false;
+    data.platLast = data.platLast || {};
+    const first = !data.platLast[p];
+    const changed = data.platLast[p] !== acctId;
+    data.platLast[p] = acctId;
+    // 微信 / 支付宝第一次记住、或换了卡时，提示一句
+    return ['微信', '支付宝'].includes(p) && (first || changed) && !(data.platDefault || {})[p];
+  }
   function nlAccount(text) {
     const accts = S().accounts.filter((a) => !a.archived);
     BANK_ALIAS.forEach(([a, b]) => { text = text.split(a).join(b); });
@@ -3718,10 +3855,14 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     for (const a of accts) {
       const short = shortName(a.name);
       if (a.name && text.includes(a.name)) return a;
-      if (short.length >= 2 && text.includes(short)) return a;
+      // “微信零钱”“支付宝余额”的简称就是“微信”“支付宝”，这两个词指平台，交给下面按常用卡处理
+      if (short.length >= 2 && !['微信', '支付宝'].includes(short) && text.includes(short)) return a;
     }
-    if (/微信|零钱/.test(text)) return accts.find((a) => /微信|零钱/.test(a.name)) || null;
-    if (/支付宝|余额宝/.test(text)) return accts.find((a) => /支付宝/.test(a.name)) || null;
+    // 明确说“零钱”“余额”才是钱包；只说“微信”“支付宝”指的是在哪付，用这个平台的常用卡
+    if (/零钱/.test(text)) return accts.find((a) => /微信|零钱/.test(a.name)) || null;
+    if (/支付宝余额|余额宝/.test(text)) return accts.find((a) => /支付宝/.test(a.name)) || null;
+    if (/微信/.test(text)) return platCard('微信') || accts.find((a) => /微信|零钱/.test(a.name)) || null;
+    if (/支付宝/.test(text)) return platCard('支付宝') || accts.find((a) => /支付宝/.test(a.name)) || null;
     if (/花呗/.test(text)) return accts.find((a) => /花呗/.test(a.name)) || null;
     if (/现金/.test(text)) return accts.find((a) => a.type === 'cash') || null;
     if (/信用卡/.test(text)) { const cs = accts.filter((a) => a.type === 'credit'); if (cs.length === 1) return cs[0]; }
@@ -3790,8 +3931,10 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       note = note.replace(/微信|支付宝|花呗|现金|信用卡|的卡|卡/g, '').replace(/\s+/g, ' ').trim().replace(/^用\s*|\s*用$/g, '').slice(0, 24);
       const category = kind === 'income' ? billIncomeCat(hay) : nlCategory(hay);
       const ps = S().platforms, generic = ['微信', '支付宝', '线下', '其他'];
-      const platform = ps.find((p) => !generic.includes(p) && (PLAT_KEYS[p] || [p]).some((k) => hay.includes(k))) || null;
-      return { kind, cents: it.cents, date, category, platform, account: acct ? acct.id : null, note, guessed: !category };
+      const platform = ps.find((p) => !generic.includes(p) && (PLAT_KEYS[p] || [p]).some((k) => hay.includes(k)))
+        || ['微信', '支付宝'].find((p) => ps.includes(p) && hay.includes(p)) || null;
+      const pc = !acct && platform ? platCard(platform) : null; // 没说哪张卡：用这个平台的常用卡
+      return { kind, cents: it.cents, date, category, platform, account: acct ? acct.id : pc ? pc.id : null, note, guessed: !category };
     });
   }
   async function aiParse(text) {
@@ -3835,11 +3978,13 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const cats = S().categories;
     const base = Date.now(), ids = [];
     items.forEach((it, i) => {
-      const rec = { id: rid(), createdAt: base + i, cents: it.cents, date: it.date, account: it.account || state.sel.account, note: it.note };
+      const pc = !it.account && it.platform ? platCard(it.platform) : null;
+      const rec = { id: rid(), createdAt: base + i, cents: it.cents, date: it.date, account: it.account || (pc && pc.id) || state.sel.account, note: it.note };
       if (it.kind !== 'expense') rec.kind = it.kind;
       if (it.kind === 'income') rec.category = it.category || S().incomeCats[0];
       else { rec.category = it.category || (cats.includes('其他') ? '其他' : cats[0]); rec.platform = it.platform || state.sel.platform; }
       if (state.sel.tags.length) rec.tags = state.sel.tags.slice();
+      if (it.account && it.platform && it.kind === 'expense') rememberPlat(it.platform, it.account); // 说了平台又说了卡：记住
       data.expenses.push(rec); ids.push(rec.id);
     });
     data.nlCount = (data.nlCount || 0) + ids.length;
@@ -3996,8 +4141,19 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const otherRows = ASSETS().map((x) => af && af.id === x.id ? assetForm(x) : `<div class="arow">${catIcon(x.name, { key: (ASSET_KINDS.find((k) => k[0] === x.kind) || ['', 'dots'])[1] })}
       <div style="min-width:0"><div class="n">${esc(x.name)}</div><div class="m">${esc(x.kind)} · ${x.updated ? `${+x.updated.slice(5, 7)}/${+x.updated.slice(8)} 更新` : '手动填写'}</div></div>
       <div class="v">${money(x.cents)}<br><button type="button" class="mini" data-asset-edit="${esc(x.id)}">修改</button></div></div>`).join('');
-    box.innerHTML = `<section class="panel total netBox"><div><span class="lbl">净资产</span><b class="num${net < 0 ? ' up' : ''}">${net < 0 ? '-' : ''}${money(Math.abs(net))}</b><span class="hint">资产 − 负债</span></div>
-        <div class="r"><span class="lbl">资产</span><span class="num">${money(assets)}</span><span class="lbl" style="margin-top:4px">负债</span><span class="num">${money(debt)}</span></div></section>
+    // 信用卡：总额度、剩余可用（只算填了额度的卡）
+    const withLim = credit.filter((a) => a.limitCents);
+    const creditLim = withLim.reduce((t, a) => t + a.limitCents, 0);
+    const creditAvail = withLim.reduce((t, a) => t + cardStatus(a).avail, 0);
+    const cell = (lbl, v, sub) => `<div><span class="lbl">${lbl}</span><span class="num">${v}</span>${sub ? `<small>${sub}</small>` : ''}</div>`;
+    box.innerHTML = `<section class="panel netBox"><span class="lbl">净资产（资产 − 负债）</span><b class="num big${net < 0 ? ' up' : ''}">${net < 0 ? '-' : ''}${money(Math.abs(net))}</b>
+        <div class="netGrid">
+          ${cell('现金总额', money(walletSum), `储蓄卡、零钱、现金 ${wallets.length} 个`)}
+          ${cell('信用总额度', withLim.length ? money(creditLim) : '—', withLim.length ? `${withLim.length} 张卡 · 剩余 ${money(creditAvail)}` : '信用卡还没填额度')}
+          ${cell('资产', money(assets), other ? `含其他资产 ${money(other)}` : '')}
+          ${cell('负债', money(debt), '信用卡待还 + 贷款剩余')}
+        </div>
+        ${withLim.length ? `<p class="hint">现在能动用的钱：现金 ${money(walletSum)} + 信用卡剩余 ${money(creditAvail)} = <b class="num">${money(walletSum + creditAvail)}</b></p>` : ''}</section>
       <section class="panel"><div class="phead"><h2>资产</h2>${af && !af.id ? '' : '<button type="button" class="link" data-act="assetNew">+ 其他资产</button>'}</div>
         ${walletRows || '<div class="empty"><span>还没有储蓄卡或钱包，可以在设置里添加支付方式。</span></div>'}
         ${otherRows}${af && !af.id ? assetForm(null) : ''}
@@ -4374,7 +4530,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if (/余额宝|账户余额|^余额$/.test(m)) return accts.find((a) => /支付宝/.test(a.name)) || null;
     if (!m || m === '/') {
       if (kind === 'income') return accts.find((a) => source === 'wx' ? /微信|零钱/.test(a.name) : /支付宝/.test(a.name)) || null;
-      return null;
+      return platCard(source === 'wx' ? '微信' : '支付宝'); // 账单里没写付款方式：用这个平台的常用卡
     }
     return null;
   }
