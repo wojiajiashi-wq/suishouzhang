@@ -713,6 +713,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       <label>月预算（元）<input class="input" id="bBudget" inputmode="decimal" placeholder="例如 5000"></label>
       <label>管家怎么称呼你<input class="input" id="bAddr" maxlength="8" placeholder="老板"></label>
       <label>管家的名字<input class="input" id="bNameIn" maxlength="8" placeholder="阿福"></label>
+      <label class="full">说话风格<select class="input" id="bStyle"><option value="butler">老管家：恭敬稳重、贴心靠谱</option><option value="sister">温柔姐姐：耐心温柔、会心疼人</option><option value="bestie">元气闺蜜：活泼热情、超会夸</option><option value="tsundere">嘴硬心软：爱吐槽、但最靠谱</option></select></label>
       <details class="full"><summary>高级：管家人设、接口地址</summary>
         <label style="margin-top:8px">人设（{name} 会换成管家名字，{addr} 会换成对你的称呼）<textarea class="input" id="bPersona" rows="12"></textarea></label>
         <button type="button" class="btn" id="bPersonaReset" style="margin-top:8px">恢复默认人设</button>
@@ -1047,7 +1048,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   const docState = () => ({
     categories: data.settings.categories, platforms: data.settings.platforms, incomeCats: data.settings.incomeCats,
     budget: data.budget || {}, paid: data.paid || {}, recurDone: data.recurDone || {}, tagList: data.tagList || [], fxIgnore: data.fxIgnore || [], checkins: data.checkins || {}, rates: data.rates || {},
-    butler: data.butler ? { name: data.butler.name, addr: data.butler.addr, model: data.butler.model, persona: data.butler.persona } : {}
+    butler: data.butler ? { name: data.butler.name, addr: data.butler.addr, model: data.butler.model, persona: data.butler.persona, style: data.butler.style } : {}
   });
   function hashStr(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return (h >>> 0).toString(36); }
   const entHash = (e) => { const c = Object.assign({}, e); delete c.updatedAt; return hashStr(JSON.stringify(c)); };
@@ -2578,6 +2579,13 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   const DEFAULT_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions';
   const DEFAULT_PERSONA = `你是「{name}」，{addr}的私人理财管家，替{addr}打理家里的账目已经很多年了。你忠诚、细心、温暖，像一位贴心的老管家。
 
+【情绪价值的做法】
+- 先看见情绪：从{addr}的话里读出情绪（焦虑、内疚、开心、累、纠结），第一句先回应这份情绪，再谈钱。
+- 夸要具体：从账本数据里的【值得夸的地方】挑真实的点，带上数字夸，不说空泛的“你真棒”。
+- 把问题说小：花多了就拆成“每天少花多少钱”这种今天就能做到的小目标，让{addr}觉得“这事我能行”。
+- 站在{addr}这边：多说“咱们”“我们一起”，不站在道德高处评判任何消费，不翻旧账。
+- 接得上话：对话里{addr}提过的计划、烦恼、开心的事，后面要记得、要接上。
+
 【说话方式】
 1. 永远称呼对方为「{addr}」，语气恭敬又亲切，可以带一点轻松的幽默。
 2. 先给情绪价值，再给建议：每次回答先真诚地肯定{addr}（坚持记账、某类开销控制得好、按时还款……哪怕是很小的进步也要看见），再温和地说问题。
@@ -2605,10 +2613,91 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   const bName = () => B().name || '阿福';
   const bAddr = () => B().addr || '老板';
   const yuan = (c) => '¥' + (Math.round(c) / 100).toFixed(2);
-  const QUICK = ['点评一下我这个月的开销', '帮我做个本周小结', '这个月我还能花多少？', '信用卡该怎么安排还款？', '帮我找找能省钱的地方', '我的固定支出有什么能优化的？'];
+  const QUICK = ['点评一下我这个月的开销', '夸夸我这个月的表现', '我想买个东西，帮我参谋一下', '今天有点 emo，陪我聊聊', '这个月我还能花多少？', '信用卡该怎么安排还款？', '帮我找找能省钱的地方'];
 
-  function persona() {
-    return (B().persona || DEFAULT_PERSONA).replace(/\{name\}/g, bName()).replace(/\{addr\}/g, bAddr());
+  // 说话风格：在人设基础上换口吻，原则不变
+  const STYLES = [
+    ['butler', '老管家', '恭敬、稳重、贴心，像跟了{addr}很多年的老管家，靠得住。'],
+    ['sister', '温柔姐姐', '温柔、耐心，像很会照顾人的大姐姐，常说“好啦”“没关系的”，会心疼人，从不催促。'],
+    ['bestie', '元气闺蜜', '活泼、热情、超会夸，像无话不说的好朋友，语气词多一点（呀、啦、嘛），表情可以多用一两个，夸人时可以夸张一点。'],
+    ['tsundere', '嘴硬心软', '表面爱吐槽、嘴上不饶人，吐槽完马上给最实在的帮助和关心，反差萌。吐槽只针对事，绝不刻薄、不人身攻击；{addr}情绪低落时立刻收起吐槽，只剩温柔。']
+  ];
+  const styleOf = () => STYLES.find((s) => s[0] === B().style) || STYLES[0];
+
+  // 管家技能：根据{addr}这句话的情绪和场景，给千问追加一段应对策略（可以在管理后台单独关闭）
+  // kw：这句话里出现就触发；when：结合账本情况触发
+  const MONEY_WORDS = /钱|花|买|账|卡|预算|存|省|还款|支出|收入|工资|消费|元|块|贷|开销|理财|外卖|会员/;
+  const BUTLER_SKILLS = [
+    { id: 'crisis', name: '危机关怀', desc: '出现轻生等字眼时，只谈关心、给出求助热线', only: true,
+      kw: /不想活|活不下去|想死|自杀|轻生|结束生命|撑不下去了|活着没意思/,
+      prompt: '{addr}可能正处在很难熬、甚至危险的情绪里。这次完全不谈记账、花钱和省钱。用真诚、平静的话表达关心，告诉{addr}ta很重要、你很在乎；温和地建议马上联系身边信任的人，或拨打全国心理援助热线 12356；如果有立即的危险，请拨打 110 或 120。不说教、不列条目、不讲道理，简短。' },
+    { id: 'care', name: '情绪安抚', desc: '焦虑、累、委屈、没钱慌时，先接住情绪再说事',
+      kw: /焦虑|难受|崩溃|emo|丧|好累|累死|心累|压力|烦死|烦躁|睡不着|想哭|哭了|委屈|失业|裁员|被骂|好穷|穷死|没钱了|完蛋|绝望|不开心|难过|慌/i,
+      prompt: '{addr}现在情绪不太好。先接住情绪：用一两句话说出你理解ta的感受（例如“换谁遇到这种事都会……”），不要马上给建议、不要堆数字，也不要说“别难过”“想开点”这类空话。再从账本里找一个真实的、能让ta安心的事实（比如还有多少结余、一直在坚持记账、没有逾期），轻轻说出来。建议最多 1 个，而且是今天就能做到的小事，也可以不给。最后告诉ta你一直都在。整体不超过 150 字。' },
+    { id: 'debt', name: '还款压力', desc: '欠款、网贷、最低还款时，排还款顺序、劝别以贷养贷',
+      kw: /还不上|还不起|还款压力|欠款|欠钱|网贷|借呗|花呗|白条|最低还款|逾期|催收|负债|以贷养贷|拆东墙/,
+      prompt: '{addr}在为还款发愁。先稳住情绪：告诉ta这件事可以一步一步解决，ta愿意面对就已经走出了最难的一步。根据账本里的信用卡和贷款，按还款日先后排一个简单的顺序。原则：先保证不逾期；最低还款和分期只是缓一缓，会产生利息或手续费，要说清楚；可以建议主动打银行客服协商分期或延期；坚决不建议借新还旧、用网贷还信用卡。不推荐任何具体的贷款产品。' },
+    { id: 'regret', name: '剁手后悔', desc: '为冲动消费自责时，先帮放下内疚，再给防冲动小技巧',
+      kw: /剁手|冲动|乱买|乱花|后悔|又买了|忍不住|败家|买多了|管不住|手贱/,
+      prompt: '{addr}在为花钱自责。先帮ta放下内疚：偶尔冲动很正常，能意识到、还愿意记下来，已经比大多数人强了。不翻旧账，不算“这些钱本来可以……”。如果是最近 7 天买的，可以轻轻提一句看看能不能七天无理由退；否则就说“买都买了，咱们好好用它”。最后只给一个防冲动的小技巧（比如加购物车冷静 24 小时、把购物 App 挪出首页、给自己设个“想要清单”）。' },
+    { id: 'overspend', name: '超支陪跑', desc: '超预算时不制造焦虑，把剩下的日子拆成每天小目标',
+      kw: /超支|超预算|花超|花多了|花太多|月光|透支|不够花|吃土|没钱花/,
+      when: (c) => c.over && /点评|总结|小结|开销|怎么样|还能花|这个月/.test(c.text),
+      prompt: '这次涉及超支。不要制造焦虑，不要说“你花太多了”。先用数据说明情况没那么糟（超了多少、主要是哪一两笔大额或一次性的开销）。再把本月剩下的天数拆成“每天花多少以内”的小目标，加 1–2 个最容易做到的调整。语气是“咱们一起把它拉回来”。' },
+    { id: 'buy', name: '买前参谋', desc: '纠结要不要买时，结合预算余额给明确建议',
+      kw: /想买|要不要买|该不该买|值不值|能买吗|可以买吗|入手|种草|拔草|剁不剁|想换个|想换台/,
+      prompt: '{addr}在纠结要不要买东西。先认可这份想要（想犒劳自己很正常）。然后用账本算一笔账：本月预算还剩多少、平均每天还能花多少、近期有没有信用卡还款或固定扣款。给出明确倾向：可以买 / 缓一缓再买 / 换个更省的方式（等大促、买二手、先用替代品），并说清理由。不做道德评判。如果{addr}没说价格，先问一句大概多少钱。' },
+    { id: 'payday', name: '发薪庆祝', desc: '发工资、奖金时一起开心，并建议先存后花',
+      kw: /发工资|工资到了|工资到账|发薪|发奖金|年终奖|涨薪|涨工资|发钱了/,
+      prompt: '恭喜{addr}！先真诚地一起开心。然后建议“先存后花”：结合存钱目标和固定支出，给一个简单的分配建议（先放多少进存钱目标、留出本月固定支出和信用卡账单，剩下的才是可以放心花的）。' },
+    { id: 'praise', name: '夸夸模式', desc: '求表扬或有进步时，具体地、带数字地夸',
+      kw: /夸|表扬|厉害吗|做得好|做得怎么样|省下|省了|存了|攒了|存够|达成|做到了|坚持|进步/,
+      prompt: '{addr}想被看见、被肯定。这次以夸为主，要夸得具体：从【值得夸的地方】挑 2–3 个最真实的点，带上数字，夸出画面感（比如“连续 12 天，比大多数人坚持得都久”）。可以俏皮、夸张一点。这次不提问题，最多在结尾轻轻提一个下一步的小目标。' },
+    { id: 'chat', name: '闲聊陪伴', desc: '聊的不是钱时，像朋友一样陪着聊，不硬拉回理财',
+      when: (c) => !MONEY_WORDS.test(c.text) && c.text.length <= 60, fallback: true,
+      prompt: '{addr}这句话和钱无关，是在跟你聊天。这次可以不聊账本，像老朋友一样自然、简短、有温度地回应。只有顺口的时候才轻轻带一句关心，不要硬拉回理财话题。' }
+  ];
+  const skillOn = (id) => !((CONFIG.butler || {}).skillsOff || []).includes(id);
+  function pickSkills(text, ctx) {
+    const c = Object.assign({ text }, ctx);
+    const hit = BUTLER_SKILLS.filter((s) => skillOn(s.id) && !s.fallback && ((s.kw && s.kw.test(text)) || (s.when && s.when(c))));
+    const only = hit.find((s) => s.only);
+    if (only) return [only];
+    if (hit.length) return hit.slice(0, 2);
+    return BUTLER_SKILLS.filter((s) => s.fallback && skillOn(s.id) && s.when(c)).slice(0, 1);
+  }
+  function persona(skills) {
+    let p = B().persona || DEFAULT_PERSONA;
+    const st = styleOf();
+    if (st[0] !== 'butler') p += `\n\n【说话风格：${st[1]}】\n${st[2]}（这个风格优先于上面对口吻的描述，但上面的原则都要遵守。）`;
+    const extra = ((CONFIG.butler || {}).extra || '').trim();
+    if (extra) p += '\n\n【补充说明】\n' + extra;
+    if (skills && skills.length) p += '\n\n【这次的应对方式】（比上面的通用要求优先）\n' + skills.map((s) => `- ${s.name}：${s.prompt}`).join('\n');
+    return p.replace(/\{name\}/g, bName()).replace(/\{addr\}/g, bAddr());
+  }
+  // 账本里值得夸的地方，交给管家“具体地夸”
+  function praisePoints(y, m, isCur, total, prevSame, days) {
+    const P = [];
+    const st = streakInfo(), ti = treeInfo();
+    if (st.n >= 2) P.push(`已经连续记账 ${st.n} 天`);
+    if (ti.n >= 3) P.push(`一共记账 ${ti.n} 天，小树长到了「${ti.name}」`);
+    const ns = noSpendDays(y, m);
+    if (ns) P.push(`这个月有 ${ns} 天一分钱没乱花`);
+    const ps = sum(prevSame);
+    if (ps && total < ps) P.push(`比上月${isCur ? '同期' : ''}少花了 ${yuan(ps - total)}`);
+    const inc = incomeSum(rowsOf(y, m));
+    if (inc && (inc - total) / inc >= 0.2) P.push(`这个月储蓄率 ${Math.round((inc - total) / inc * 100)}%`);
+    const bud = BUD().total;
+    if (bud && isCur && total / bud < days / dim(y, m)) P.push(`预算用了 ${Math.round(total / bud * 100)}%，而这个月才过去 ${Math.round(days / dim(y, m) * 100)}%，花得很有节制`);
+    S().accounts.filter((a) => a.type === 'credit' && !a.archived).forEach((a) => { const s = cardStatus(a); if (s.prev && s.prevPaid) P.push(`${accountLabel(a.id)} 上期账单已经按时还清`); });
+    GOALS().forEach((g) => { const v = goalSaved(g), pct = Math.round(v / g.target * 100); if (pct >= 100) P.push(`存钱目标「${g.name}」已经存够了`); else if (pct >= 30) P.push(`存钱目标「${g.name}」完成了 ${pct}%`); });
+    return P;
+  }
+  // 早晚问候，让开场白不千篇一律
+  function greetLine() {
+    const h = new Date().getHours(), n = streakInfo().n;
+    const hi = h < 5 ? '这么晚还没睡呀，' : h < 11 ? '早上好，' : h < 14 ? '中午好，' : h < 18 ? '下午好，' : '晚上好，';
+    return `${bAddr()}${hi}我是${bName()}～${n >= 2 ? `您已经连续记账 ${n} 天了，真不容易。` : '账本我一直替您看着呢。'}想聊哪方面，点下面的问题，或者直接跟我说就行，开心的不开心的都可以。`;
   }
   // 把账本整理成一段文字交给千问（只发汇总和最大的几笔，不发全部流水）
   function buildContext(ym) {
@@ -2621,7 +2710,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const prevAll = rowsOf(pd.getFullYear(), pd.getMonth());
     const prevSame = isCur ? prevAll.filter((x) => +x.date.slice(8) <= days) : prevAll;
     const L = [];
-    L.push(`今天是 ${fmt(t)}（${WEEK[t.getDay()]}）。下面是${bAddr()}的账本数据，金额单位是人民币元。`);
+    L.push(`今天是 ${fmt(t)}（${WEEK[t.getDay()]}），现在 ${t.getHours()} 点。下面是${bAddr()}的账本数据，金额单位是人民币元。`);
     L.push(`【${y}年${m + 1}月】${isCur ? `截至今天（第 ${days} 天，本月共 ${dim(y, m)} 天）` : '全月'}支出 ${yuan(total)}，共 ${rows.filter(isExpense).length} 笔，日均 ${yuan(total / days)}。上月${isCur ? '同期' : ''} ${yuan(sum(prevSame))}，上月全月 ${yuan(sum(prevAll))}。`);
     const inc = incomeSum(rows);
     if (inc) L.push(`本月收入 ${yuan(inc)}（${groupSumIncome(rows)}），结余 ${yuan(inc - total)}，储蓄率 ${Math.round((inc - total) / inc * 100)}%。`);
@@ -2678,8 +2767,10 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       for (let i = 6; i >= 0; i--) { const d = fmt(addDays(t, -i)); last7.push(`${d.slice(5)} ${yuan(sum(data.expenses.filter((x) => x.date === d)))}`); }
       L.push('最近 7 天每天花费：' + last7.join('，') + '。');
     }
+    const P = praisePoints(y, m, isCur, total, prevSame, days);
+    L.push('【值得夸的地方】' + (P.length ? P.join('；') + '。' : '暂时没有特别突出的，可以夸{addr}愿意打开账本、关心自己的钱。'));
     if (data.expenses.some((x) => x.sample)) L.push('（注意：账本里有一部分是示例数据。）');
-    return L.join('\n');
+    return L.join('\n').replace(/\{addr\}/g, bAddr());
   }
 
   function groupSumIncome(rows) {
@@ -2708,13 +2799,13 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       state.bCfgFilled = true;
       $('#bKey').value = b.key || ''; $('#bModel').value = b.model || 'qwen-plus';
       $('#bBudget').value = BUD().total ? String(BUD().total / 100) : '';
-      $('#bAddr').value = b.addr || ''; $('#bNameIn').value = b.name || '';
+      $('#bAddr').value = b.addr || ''; $('#bNameIn').value = b.name || ''; $('#bStyle').value = styleOf()[0];
       $('#bPersona').value = b.persona || DEFAULT_PERSONA; $('#bEndpoint').value = b.endpoint || '';
     }
     if (!showCfg) state.bCfgFilled = false;
     const msgs = CHAT();
     const greet = { role: 'assistant', content: ready
-      ? `${bAddr()}好，我是${bName()}～账本我一直替您看着呢。想聊哪方面，点下面的问题，或者直接问我就行。`
+      ? greetLine()
       : `${bAddr()}好，我是${bName()}。先在上面填好千问的 API Key，我就能帮您看账、出主意啦。` };
     $('#chat').innerHTML = [greet].concat(msgs).map(bubble).join('');
     $('#bQuick').innerHTML = QUICK.map((q) => `<button type="button" class="chip" data-ask="${esc(q)}">${esc(q)}</button>`).join('');
@@ -2782,7 +2873,10 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     window.scrollTo(0, document.body.scrollHeight);
     // 人设 + 账本放在 system 里，每次都发，管家的口吻就不会跑偏
     const history = chat.slice(0, -1).filter((m) => !m.error && m.content).slice(-10).map((m) => ({ role: m.role, content: m.content }));
-    const messages = [{ role: 'system', content: persona() + '\n\n【账本数据】\n' + buildContext(ym) }].concat(history);
+    const now = new Date(), bud = BUD().total;
+    const skills = pickSkills(text, { over: !!(bud && !ym && sum(rowsOf(now.getFullYear(), now.getMonth())) > bud) });
+    reply.skills = skills.map((s) => s.id); // 以后上云可以统计哪些技能用得多
+    const messages = [{ role: 'system', content: persona(skills) + '\n\n【账本数据】\n' + buildContext(ym) }].concat(history);
     try {
       const out = await streamQwen(messages, (full) => { reply.content = full; updateLastBubble(reply); });
       if (!out) throw new Error('千问没有返回内容，再试一次吧。');
@@ -2823,6 +2917,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const addr = $('#bAddr').value.trim(), name = $('#bNameIn').value.trim();
     if (addr) b.addr = addr; else delete b.addr;
     if (name) b.name = name; else delete b.name;
+    const sty = $('#bStyle').value; if (sty && sty !== 'butler') b.style = sty; else delete b.style;
     if (per && per !== DEFAULT_PERSONA.trim()) b.persona = per; else delete b.persona;
     if (ep) b.endpoint = ep; else delete b.endpoint;
     persist(); state.bCfg = false; render(); toast('管家设置已保存');
@@ -4059,7 +4154,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   loadRemoteConfig();
   // 在管理后台的预览框里：告诉后台有哪些模块，后台据此生成开关
   if (IN_PREVIEW) {
-    try { window.parent.postMessage({ type: 'suishouzhang:ready', modules: MODULES.map(([id, name, group, , desc]) => ({ id, name, group, desc })), defaults: { categories: DEFAULTS.categories, platforms: DEFAULTS.platforms, incomeCats: DEFAULTS.incomeCats } }, location.origin); } catch (e) {}
+    try { window.parent.postMessage({ type: 'suishouzhang:ready', modules: MODULES.map(([id, name, group, , desc]) => ({ id, name, group, desc })), skills: BUTLER_SKILLS.map((s) => ({ id: s.id, name: s.name, desc: s.desc })), defaults: { categories: DEFAULTS.categories, platforms: DEFAULTS.platforms, incomeCats: DEFAULTS.incomeCats } }, location.origin); } catch (e) {}
   }
   if (autoAdded) toast(`已自动记下 ${autoAdded} 笔固定支出`);
   document.addEventListener('visibilitychange', () => {

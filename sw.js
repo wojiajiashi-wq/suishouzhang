@@ -1,5 +1,5 @@
 // 离线缓存：页面优先联网取最新版本，没网时用上次缓存的版本；图标等文件直接用缓存。
-const CACHE = 'suishouzhang-v4';
+const CACHE = 'suishouzhang-v5';
 const FILES = ['./', './index.html', './manifest.webmanifest', './icon-180.png', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {
