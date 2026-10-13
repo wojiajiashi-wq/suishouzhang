@@ -233,6 +233,29 @@ details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; bac
 .bRow .lbar { height: 8px; }
 .howto { margin: 4px 0 12px; font-size: 14px; }
 .howto p { margin: 8px 0 0; color: var(--ink); line-height: 1.6; }
+#ocrBatch { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.lbList { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.lbRow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 96px; gap: 6px 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.lbRow.off { opacity: .45; }
+.lbRow > input[type=checkbox] { width: 20px; height: 20px; margin: 0; accent-color: var(--jade); }
+.lbMeta, .lbTags, .lbWide { grid-column: 2 / 4; }
+.lbWide.addRow { margin: 0; display: flex; gap: 6px; }
+.lbWide.addRow .input { flex: 1; }
+.lbWide.addRow .btn { padding: 0 12px; min-height: 38px; }
+.lbTags { align-items: center; }
+.lbTags .link { font-size: 13px; padding: 0; }
+.lbTags:empty { display: none; }
+.lbMeta { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); gap: 6px; }
+.lbRow .input { min-height: 38px; padding: 6px 8px; font-size: 15px; width: 100%; min-width: 0; }
+.lbRow .input.warn { background: #fff4d6; border-color: #e0b44c; color: #6b4e00; }
+.lbAmt { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+.lbAmt.inc { color: var(--jade); }
+.lbTags { display: flex; gap: 6px; flex-wrap: wrap; }
+.lbTags span { background: var(--jade-soft); color: var(--jade); border-radius: 6px; padding: 0 8px; font-size: 12px; }
+.lbTags span.miss { background: var(--chip); color: var(--muted); }
+.lbActs { display: flex; gap: 8px; }
+.lbActs .btn { flex: 1; }
+.lbAi { align-self: center; }
 .impBox { margin-top: 12px; display: flex; flex-direction: column; gap: 8px; font-size: 14px; }
 .impBox ul { margin: 0; padding-left: 1.2em; display: flex; flex-direction: column; gap: 4px; }
 .impBox .acts { display: flex; gap: 8px; }
@@ -575,6 +598,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
         <div id="ocrResult"></div>
       </div>
     </div>
+    <div id="ocrBatch" hidden></div>
     <details id="ocrRawWrap" hidden><summary>查看识别出的文字</summary><pre id="ocrRaw"></pre></details>
   </section>
   <section class="homeCard" id="homeCard"><div id="streak"></div><div id="budgetHome"></div></section>
@@ -2238,7 +2262,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   };
   const CAT_KEYS = {
     餐饮: ['外卖', '餐', '饭', '咖啡', '奶茶', '瑞幸', '星巴克', '肯德基', '麦当劳', '饿了么', '美食', '小吃', '面馆', '火锅', '烧烤', '茶饮', '蜜雪', '喜茶'],
-    交通: ['滴滴', '打车', '出行', '地铁', '公交', '加油', '停车', '铁路', '12306', '航空', '高德', '哈啰', '单车', '高速', '交通'],
+    交通: ['滴滴', '打车', '出行', '地铁', '公交', '加油', '停车', '铁路', '12306', '航空', '高德', '哈啰', '单车', '高速', '交通', 'ETC', '充电', '电途', '特来电'],
     日用: ['超市', '便利店', '盒马', '罗森', '全家', '7-11', '生鲜', '朴朴', '叮咚', '日用'],
     通讯: ['话费', '流量', '中国移动', '中国联通', '中国电信', '宽带', '充值缴费'],
     娱乐: ['电影', '影城', '游戏', '视频会员', '音乐', '演出', 'KTV', '门票', '休闲娱乐'],
@@ -2385,7 +2409,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const url = URL.createObjectURL(file);
     try {
       const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
-      const scale = Math.min(1, 1400 / img.naturalWidth);
+      const scale = Math.min(2, 1800 / img.naturalWidth); // 放大后小字（日期、金额）认得更准
       const c = document.createElement('canvas');
       c.width = Math.round(img.naturalWidth * scale); c.height = Math.round(img.naturalHeight * scale);
       const ctx = c.getContext('2d'); ctx.drawImage(img, 0, 0, c.width, c.height);
@@ -2404,7 +2428,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   async function runOcr(file) {
     if (ocrBusy) return; ocrBusy = true;
     $('#pastePanel').hidden = true; showOcr(true);
-    $('#ocrResult').innerHTML = ''; $('#ocrRawWrap').hidden = true;
+    $('#ocrResult').innerHTML = ''; $('#ocrRawWrap').hidden = true; $('#ocrBatch').hidden = true; state.lb = null;
     const img = $('#ocrImg'); if (img.dataset.url) URL.revokeObjectURL(img.dataset.url);
     img.dataset.url = URL.createObjectURL(file); img.src = img.dataset.url; img.hidden = false;
     const STEP = { 'loading tesseract core': '正在加载识别组件…', 'loading language traineddata': '正在下载中文识别数据（只有第一次需要）…', 'initializing api': '正在准备…', 'recognizing text': '正在识别文字…' };
@@ -2418,22 +2442,258 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('chi_sim+eng', 1, { logger: (m) => { if (ocrProgress) ocrProgress(m); } });
       const canvas = await prepImage(file);
       const res = await ocrWorker.recognize(canvas);
-      applyParsed(parseText(res.data.text), res.data.text);
+      const items = listItems(res);
+      if (items.length >= 2) { // 账单列表截图：一次记好几笔
+        setStatus(`认出 ${items.length} 笔，正在逐条核对金额和日期…`, 0.97);
+        await refineList(items, canvas);
+        showList(buildListRows(items, res.data.text), res.data.text, file);
+      } else applyParsed(parseText(res.data.text), res.data.text);
     } catch (e) {
       setStatus(navigator.onLine === false ? '识别组件还没下载过，第一次使用需要联网。' : '识别没有完成：识别组件下载失败或图片打不开。请检查网络后再试一次。', null);
     } finally { ocrBusy = false; }
   }
+  // ---------- 账单列表截图：一张图里有好几笔 ----------
+  // 支付宝 / 微信 / 银行 App 的账单列表：每笔一行“商户 … -34.40”，下面一行“10月13日 19:36”
+  const LIST_AMT = /([-+~一])\s*(\d{1,3}(?:,\d{3})+|\d+)\.(\d{2})\s*$/;
+  // left：文字区的左边界（和下面日期行对齐），比它更靠左的是头像被认成的乱码
+  function cleanTitle(words, left) {
+    let w = words.slice();
+    if (left != null) w = w.filter((x) => x.bbox.x1 > left);
+    else while (w.length > 1 && w[0].text.trim().length <= 2 && (w[0].confidence < 75 || !/[A-Za-z0-9一-鿿]/.test(w[0].text))) w.shift();
+    return w.map((x) => x.text).join(' ').replace(/\s*([一-鿿])\s*/g, '$1').replace(/\s+/g, ' ')
+      .replace(/^[^A-Za-z0-9一-鿿]+|[^A-Za-z0-9一-鿿)]+$/g, '').trim();
+  }
+  const boxOf = (ws) => ({ x0: Math.min(...ws.map((w) => w.bbox.x0)), y0: Math.min(...ws.map((w) => w.bbox.y0)), x1: Math.max(...ws.map((w) => w.bbox.x1)), y1: Math.max(...ws.map((w) => w.bbox.y1)) });
+  function listItems(res) {
+    const L = (res.data.lines || []).filter((l) => l.text.trim() && l.words && l.words.length);
+    const isAmt = (l) => LIST_AMT.test(l.text.trim()) && !/支出|收入|合计|总计|余额/.test(l.text);
+    const items = [];
+    L.forEach((l, i) => {
+      if (!isAmt(l)) return;
+      const m = l.text.trim().match(LIST_AMT), ws = l.words;
+      let k = ws.length - 1;
+      while (k > 0 && !/\d/.test(ws[k].text)) k--;
+      let k0 = k;
+      while (k0 > 0 && /^[-+~一]$/.test(ws[k0 - 1].text.trim())) k0--;
+      const next = L[i + 1] && !isAmt(L[i + 1]) ? L[i + 1] : null;
+      const dw = next && next.words.find((x) => /\d/.test(x.text));
+      items.push({ words: ws.slice(0, k0), sign: m[1] === '+' ? '+' : '-', cents: Math.round(+(m[2].replace(/,/g, '') + '.' + m[3]) * 100),
+        amtBox: boxOf(ws.slice(k0, k + 1)), dateLine: next, dateText: next ? next.text : '', dateX: dw ? dw.bbox.x0 : null, h: l.bbox.y1 - l.bbox.y0 });
+    });
+    // 标题和日期左对齐：取各行日期起点的中位数当文字区左边界
+    const xs = items.map((it) => it.dateX).filter((x) => x != null).sort((a, b) => a - b);
+    const left = xs.length >= 2 ? xs[Math.floor(xs.length / 2)] - Math.max(8, (items[0].h || 30) * 0.4) : null;
+    items.forEach((it) => { it.title = cleanTitle(it.words, left); });
+    return items;
+  }
+  // 第二遍：只认数字，把金额和日期单独再认一次（第一遍常把头像旁的 30 认成 350）
+  async function refineList(items, canvas) {
+    const w = ocrWorker;
+    const rect = (x0, y0, x1, y1, pad) => {
+      const left = Math.max(0, Math.round(x0 - pad)), top = Math.max(0, Math.round(y0 - pad));
+      return { left, top, width: Math.min(canvas.width, Math.round(x1 + pad)) - left, height: Math.min(canvas.height, Math.round(y1 + pad)) - top };
+    };
+    try {
+      await w.setParameters({ tessedit_char_whitelist: '0123456789.,-+', tessedit_pageseg_mode: '7' });
+      for (const it of items) {
+        const b = it.amtBox;
+        const r = await w.recognize(canvas, { rectangle: rect(b.x0, b.y0, b.x1, b.y1, 12) });
+        const m = r.data.text.replace(/\s/g, '').match(/([-+])?(\d[\d,]*)\.(\d{2})$/);
+        if (m) { it.cents = Math.round(+(m[2].replace(/,/g, '') + '.' + m[3]) * 100); if (m[1]) it.sign = m[1]; }
+      }
+      await w.setParameters({ tessedit_char_whitelist: '0123456789月日年:-/', tessedit_pageseg_mode: '7' });
+      for (const it of items) {
+        const l = it.dateLine; if (!l) continue;
+        const w0 = l.words.find((x) => /\d/.test(x.text)); if (!w0) continue;
+        const r = await w.recognize(canvas, { rectangle: rect(w0.bbox.x0, l.bbox.y0, Math.min(canvas.width * 0.62, l.bbox.x1), l.bbox.y1, 8) });
+        if (/\d/.test(r.data.text)) it.dateText = r.data.text;
+      }
+    } catch (e) { /* 第二遍失败就用第一遍的结果 */ }
+    finally { try { await w.setParameters({ tessedit_char_whitelist: '', tessedit_pageseg_mode: '6' }); } catch (e) {} }
+  }
+  function listDate(s, year) {
+    s = String(s || '').replace(/\s/g, '');
+    const t = today0();
+    if (/今天/.test(s)) return fmt(t);
+    if (/昨天/.test(s)) return fmt(addDays(t, -1));
+    let m = s.match(/(20\d{2})[-\/.年](\d{1,2})[-\/.月](\d{1,2})/), y, mo, d;
+    if (m) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = s.match(/(\d{1,2})月(\d{1,2})日?/) || s.match(/^(\d{1,2})[-\/](\d{1,2})(?!\d)/))) { mo = +m[1]; d = +m[2]; y = year || t.getFullYear(); }
+    else return null;
+    if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+    let r = `${y}-${pad(mo)}-${pad(d)}`;
+    if (!year && r > fmt(t)) r = `${y - 1}-${pad(mo)}-${pad(d)}`;
+    return r > fmt(t) ? null : r;
+  }
+  function buildListRows(items, text) {
+    const flat = normText(text).replace(/\s/g, '');
+    const hy = flat.match(/(20\d{2})年(\d{1,2})月/);
+    const src = /查找交易|收支统计|支付宝|花呗|余额宝/.test(flat) ? '支付宝' : /微信|零钱|全部交易类型/.test(flat) ? '微信' : '';
+    const ps = S().platforms, generic = ['微信', '支付宝', '线下', '其他'];
+    const rows = items.map((it) => {
+      const title = it.title || '';
+      const kind = it.sign === '+' ? (/退款|退回/.test(title) ? 'refund' : 'income') : 'expense';
+      const note = title.replace(/^.*?(扫二维码付款|转账|付款|消费)(?=\s*-)/, '').replace(/(退款|退回)$/, '')
+        .replace(/^[-\s:：]+|[-\s:：]+$/g, '').replace(/^给(?=.)/, '').slice(0, 24) || title.slice(0, 24);
+      const date = it.date || listDate(it.dateText, hy ? +hy[1] : 0);
+      const row = { on: true, kind, cents: it.cents, date, note, title };
+      if (kind === 'income') row.category = billIncomeCat(title);
+      else {
+        row.category = billCategory(title, /转账/.test(title) ? '转账' : '');
+        row.platform = ps.find((p) => !generic.includes(p) && (PLAT_KEYS[p] || [p]).some((k) => title.includes(k)))
+          || (src && ps.includes(src) ? src : ps.includes('其他') ? '其他' : ps[0]);
+      }
+      return row;
+    });
+    rows.forEach((r, i) => {
+      // 日期没认出来：用相邻那笔的日期（列表按时间排序），并标出来让用户核对
+      if (!r.date) { const nb = rows.slice(i + 1).find((x) => x.date) || rows.slice(0, i).reverse().find((x) => x.date); r.date = nb ? nb.date : today(); r.dateGuess = true; }
+      // 退款：分类跟着同一家的那笔消费走
+      if (r.kind === 'refund') { const src2 = rows.find((x) => x.kind === 'expense' && x.note && x.note === r.note); if (src2) r.category = src2.category; }
+      r.dup = data.expenses.some((x) => x.date === r.date && x.cents === r.cents && kindOf(x) === r.kind);
+      r.on = !r.dup;
+    });
+    return { rows, src };
+  }
+  function showList(res, raw, file) {
+    state.lb = Object.assign(res, { file });
+    $('#ocrResult').innerHTML = '';
+    $('#ocrRaw').textContent = String(raw || '').trim() || '（没有识别到文字）';
+    $('#ocrRawWrap').hidden = !raw;
+    renderList();
+  }
+  function renderList() {
+    const lb = state.lb; if (!lb) return;
+    const cats = S().categories, ic = S().incomeCats;
+    const opt = (list, v) => list.map((c) => `<option${c === v ? ' selected' : ''}>${esc(c)}</option>`).join('');
+    const accts = S().accounts.filter((a) => !a.archived);
+    const def = lb.account || (lb.src && (accts.find((a) => a.name.includes(lb.src)) || {}).id) || state.sel.account;
+    const dups = lb.rows.filter((r) => r.dup).length, guess = lb.rows.filter((r) => r.dateGuess).length;
+    const n = lb.rows.filter((r) => r.on).length;
+    $('#ocrBatch').hidden = false;
+    setStatus(`认出 ${lb.rows.length} 笔${lb.ai ? '（AI 识别）' : ''}。核对一下：金额、备注、日期、分类都能直接改，不要的取消勾选。`, null);
+    $('#ocrBatch').innerHTML = `<div class="lbList">${lb.rows.map((r, i) => `<div class="lbRow${r.on ? '' : ' off'}" data-i="${i}">
+        <input type="checkbox" data-lb="on"${r.on ? ' checked' : ''} aria-label="记这一笔">
+        <input class="input lbNote" data-lb="note" value="${esc(r.note)}" maxlength="24" placeholder="备注">
+        <input class="input lbAmt${r.kind === 'expense' ? '' : ' inc'}" data-lb="amt" inputmode="decimal" value="${(r.cents / 100).toFixed(2)}" aria-label="金额">
+        <div class="lbMeta">
+          <input class="input${r.dateGuess ? ' warn' : ''}" type="date" data-lb="date" value="${esc(r.date)}" max="${today()}" aria-label="日期">
+          <select class="input" data-lb="category" aria-label="分类">${opt(r.kind === 'income' ? ic : cats, r.category)}<option value="__new">＋ 新分类…</option></select>
+        </div>
+        ${r.addCat ? `<div class="lbWide addRow"><input class="input" data-lb="newcat" maxlength="8" placeholder="${r.kind === 'income' ? '新收入类型，如 兼职' : '新分类，如 宠物'}"><button type="button" class="btn" data-act="lbCatAdd">添加</button><button type="button" class="btn" data-act="lbCatCancel">取消</button></div>` : ''}
+        ${r.memoOpen || r.memo ? `<input class="input lbWide" data-lb="memo" value="${esc(r.memo || '')}" maxlength="30" placeholder="补充备注，比如 和同事聚餐、给爸妈的">` : ''}
+        <div class="lbTags">${r.kind === 'refund' ? '<span>退款</span>' : r.kind === 'income' ? '<span>收入</span>' : ''}${r.dup ? '<span class="miss">可能记过了</span>' : ''}${r.memoOpen || r.memo ? '' : '<button type="button" class="link" data-act="lbMemo">＋ 备注</button>'}</div>
+      </div>`).join('')}</div>
+      ${dups || guess ? `<p class="hint">${[dups && `${dups} 笔和已经记过的同一天、同金额，默认不勾`, guess && `${guess} 笔日期没看清（黄色），按相邻那笔填的`].filter(Boolean).join('；')}。</p>` : ''}
+      <label class="field"><span class="flabel">付款方式${lb.src ? `（${lb.src}列表里看不出是哪张卡）` : ''}，这几笔都记到</span>
+        <select class="input" id="lbAcct">${accts.map((a) => `<option value="${esc(a.id)}"${a.id === def ? ' selected' : ''}>${esc(accountLabel(a.id))}</option>`).join('')}</select></label>
+      <div class="lbActs"><button type="button" class="btn go" data-act="lbGo"${n ? '' : ' disabled'}>记下 ${n} 笔</button><button type="button" class="btn" data-act="lbCancel">取消</button></div>
+      ${!lb.ai && modOn('butler') && butlerReady() ? '<button type="button" class="link lbAi" data-act="lbAi">认得不对？让 AI 再看一遍</button>' : ''}`;
+  }
+  $('#ocrBatch').addEventListener('input', (ev) => {
+    const t = ev.target, row = t.closest('.lbRow'); if (!row || !state.lb) return;
+    const r = state.lb.rows[+row.dataset.i], f = t.dataset.lb;
+    if (f === 'note') r.note = t.value.trim();
+    else if (f === 'amt') { const v = parseFloat(t.value.replace(/[,，¥￥\s]/g, '')); if (v > 0) r.cents = Math.round(v * 100); }
+    else if (f === 'date') { if (t.value) { r.date = t.value; r.dateGuess = false; t.classList.remove('warn'); } }
+    else if (f === 'memo') r.memo = t.value.trim();
+    else if (f === 'category') {
+      if (t.value === '__new') { t.value = r.category; r.addCat = true; renderList(); const el = $(`.lbRow[data-i="${row.dataset.i}"] [data-lb="newcat"]`); if (el) el.focus(); }
+      else r.category = t.value;
+    }
+  });
+  // 新分类：加到“设置”的分类里，以后记账也能用
+  function lbAddCat(row) {
+    const r = state.lb.rows[+row.dataset.i], el = row.querySelector('[data-lb="newcat"]');
+    const v = el ? el.value.trim().replace(/\s+/g, '') : '';
+    if (!v) return toast('先输入分类名');
+    const key = r.kind === 'income' ? 'incomeCats' : 'categories';
+    if (!S()[key].includes(v)) { S()[key].push(v); persist(); }
+    r.category = v; r.addCat = false;
+    // 同一家的其他几笔也改成这个分类
+    state.lb.rows.forEach((x) => { if (x !== r && x.note && x.note === r.note && x.kind !== 'income') x.category = v; });
+    renderList(); toast(`已添加分类「${v}」`);
+  }
+  $('#ocrBatch').addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter' && ev.target.dataset.lb === 'newcat') { ev.preventDefault(); lbAddCat(ev.target.closest('.lbRow')); }
+  });
+  $('#ocrBatch').addEventListener('change', (ev) => {
+    const t = ev.target;
+    if (t.id === 'lbAcct' && state.lb) { state.lb.account = t.value; return; }
+    if (t.dataset.lb !== 'on' || !state.lb) return;
+    const row = t.closest('.lbRow'); state.lb.rows[+row.dataset.i].on = t.checked; row.classList.toggle('off', !t.checked);
+    const n = state.lb.rows.filter((r) => r.on).length, b = $('[data-act="lbGo"]');
+    b.textContent = `记下 ${n} 笔`; b.disabled = !n;
+  });
+  function saveList() {
+    const lb = state.lb; if (!lb) return;
+    const acct = $('#lbAcct') ? $('#lbAcct').value : state.sel.account;
+    const base = Date.now(), ids = [];
+    lb.rows.forEach((r, i) => {
+      if (!r.on || !(r.cents > 0)) return;
+      const rec = { id: rid(), createdAt: base - i, cents: r.cents, date: r.date, account: acct, note: r.memo ? (r.note ? `${r.note} · ${r.memo}` : r.memo) : r.note, category: r.category };
+      if (r.kind !== 'expense') rec.kind = r.kind;
+      if (r.kind !== 'income') rec.platform = r.platform;
+      data.expenses.push(rec); ids.push(rec.id);
+    });
+    if (!ids.length) return toast('没有勾选要记的');
+    state.sel.account = acct; savePrefs();
+    state.lb = null; $('#ocrBatch').hidden = true; showOcr(false);
+    persist(); render(); toast(`已记下 ${ids.length} 笔${streakSuffix(true)}`, undoAdd(ids));
+  }
+  // AI 看图：交给千问视觉模型（qwen-vl），按 JSON 返回每一笔
+  async function imgDataUrl(file, maxW) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const s = Math.min(1, maxW / img.naturalWidth), c = document.createElement('canvas');
+      c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+      c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+      return c.toDataURL('image/jpeg', 0.85);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  async function aiList() {
+    const lb = state.lb; if (!lb || !lb.file || ocrBusy) return;
+    ocrBusy = true; setStatus('AI 正在看截图…', 0.5);
+    try {
+      const url = await imgDataUrl(lb.file, 1080);
+      const prompt = `这是一张手机账单列表截图。请逐条列出每一笔交易，只输出 JSON 数组，不要其他文字。每项：{"title":"商户或说明","amount":-34.40,"date":"YYYY-MM-DD"}。支出 amount 为负数，收入和退款为正数。划掉的原价、“已退款(xx)”这类附注不要算成单独一笔；页面顶部的月度合计不要。截图里没有年份就用 ${new Date().getFullYear()} 年（日期不能晚于 ${today()}）。`;
+      const out = await streamQwen([{ role: 'user', content: [{ type: 'image_url', image_url: { url } }, { type: 'text', text: prompt }] }], () => {}, { model: 'qwen-vl-max', temperature: 0.1, purpose: 'vision' });
+      const arr = JSON.parse(out.slice(out.indexOf('['), out.lastIndexOf(']') + 1));
+      const items = arr.filter((x) => x && Math.abs(+x.amount) > 0).map((x) => ({ title: String(x.title || ''), sign: +x.amount > 0 ? '+' : '-', cents: Math.round(Math.abs(+x.amount) * 100), date: /^\d{4}-\d{2}-\d{2}$/.test(x.date) && x.date <= today() ? x.date : null, dateText: String(x.date || '') }));
+      if (!items.length) throw new Error('empty');
+      const res = buildListRows(items, $('#ocrRaw').textContent);
+      state.lb = Object.assign(res, { file: lb.file, account: lb.account, ai: true });
+      renderList();
+    } catch (e) {
+      setStatus(e && e.message && !/JSON|Unexpected|empty/.test(e.message) ? e.message : 'AI 没认出来，先用上面的结果核对一下吧。', null);
+    } finally { ocrBusy = false; }
+  }
+  document.addEventListener('click', (ev) => {
+    const b = ev.target.closest('[data-act]'); if (!b) return;
+    if (b.dataset.act === 'lbGo') saveList();
+    else if (b.dataset.act === 'lbCancel') { state.lb = null; $('#ocrBatch').hidden = true; showOcr(false); }
+    else if (b.dataset.act === 'lbAi') aiList();
+    else if (b.dataset.act === 'lbCatAdd') lbAddCat(b.closest('.lbRow'));
+    else if (b.dataset.act === 'lbCatCancel') { state.lb.rows[+b.closest('.lbRow').dataset.i].addCat = false; renderList(); }
+    else if (b.dataset.act === 'lbMemo') {
+      const i = b.closest('.lbRow').dataset.i; state.lb.rows[+i].memoOpen = true; renderList();
+      const el = $(`.lbRow[data-i="${i}"] [data-lb="memo"]`); if (el) el.focus();
+    }
+  });
+
   $('#ocrBtn').addEventListener('click', () => $('#ocrFile').click());
   $('#ocrFile').addEventListener('change', (ev) => { const f = ev.target.files && ev.target.files[0]; ev.target.value = ''; if (f) runOcr(f); });
   $('#pasteBtn').addEventListener('click', () => { const p = $('#pastePanel'); p.hidden = !p.hidden; if (!p.hidden) $('#pasteText').focus(); });
   $('#pasteClose').addEventListener('click', () => { $('#pastePanel').hidden = true; });
   $('#pasteGo').addEventListener('click', () => {
     const t = $('#pasteText').value.trim(); if (!t) return toast('先把短信或账单文字粘贴进来');
-    $('#ocrImg').hidden = true; showOcr(true);
+    $('#ocrImg').hidden = true; $('#ocrBatch').hidden = true; state.lb = null; showOcr(true);
     applyParsed(parseText(t), t);
     $('#pastePanel').hidden = true; $('#pasteText').value = '';
   });
   window.__parseText = parseText; // 方便调试
+  window.__listState = () => state.lb;
 
   // ---------- 月度总结 ----------
   function rowsOf(y, m) {
@@ -2832,12 +3092,12 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const res = viaCloud
       ? await fetch(data.cloud.apiBase.replace(/\/$/, '') + '/v1/butler/chat', {
         method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + data.cloud.token },
-        body: JSON.stringify({ messages, stream: true, purpose: opts.purpose || 'chat' })
+        body: JSON.stringify({ messages, stream: true, purpose: opts.purpose || 'chat' }) // purpose=vision 时服务器换成视觉模型
       })
       : await fetch(b.endpoint || DEFAULT_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + b.key },
-        body: JSON.stringify({ model: b.model || 'qwen-plus', messages, stream: true, temperature: opts.temperature != null ? opts.temperature : 0.7, top_p: 0.9 })
+        body: JSON.stringify({ model: opts.model || b.model || 'qwen-plus', messages, stream: true, temperature: opts.temperature != null ? opts.temperature : 0.7, top_p: 0.9 })
       });
     if (!res.ok) {
       let msg = ''; try { const j = await res.json(); msg = (j.error && j.error.message) || j.message || ''; } catch (e) {}
