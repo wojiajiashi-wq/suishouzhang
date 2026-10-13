@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "updatedAt": "2026-10-13",
+  "enforceTiers": false,
+  "modules": {},
+  "announcement": { "on": false, "id": "", "text": "", "link": "", "until": "" },
+  "ai": { "freeDailyQuota": 5, "proDailyQuota": 100 }
+}
