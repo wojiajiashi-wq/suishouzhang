@@ -557,7 +557,18 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
 .fxItem:active { background: var(--chip); }
 .fxItem.done { opacity: .6; }
 .fxTop { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
-.fxTop .t { font-weight: 700; }
+.fxTop .t { font-weight: 700; min-width: 0; }
+.fxTop .acctNo { margin-left: 6px; font-weight: 400; font-size: 13px; color: var(--muted); }
+#fxSummary { display: flex; flex-direction: column; align-items: stretch; gap: 4px; }
+#fxSummary b { font-size: clamp(24px, 8vw, 30px); }
+#fxSummary .hint { overflow-wrap: anywhere; }
+#fxSummary .hint .num { white-space: nowrap; }
+#fxSummary .fxSplit { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 6px 0 4px; }
+.fxSplit > div { display: flex; flex-direction: column; gap: 2px; background: var(--chip); border-radius: 10px; padding: 8px 12px; min-width: 0; }
+.fxSplit .num { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#fxForm.subMonth label.w2 { grid-column: span 3; }
+#xNewCatRow { margin: 0; display: flex; gap: 6px; }
+#xNewCatRow .input { flex: 1; min-width: 0; }
 .fxTop .a { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .fxTop .a small { color: var(--muted); font-weight: 400; font-size: 12px; }
 .fxItem .m { color: var(--muted); font-size: 13px; }
@@ -793,6 +804,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       <div class="seg fxKind full" id="fxKind"><button type="button" data-kind="loan" aria-pressed="true">贷款</button><button type="button" data-kind="sub" aria-pressed="false">订阅 / 套餐</button></div>
       <label>名称<input class="input" id="xName" maxlength="20" placeholder="房贷"></label>
       <label>每期金额（元）<input class="input" id="xAmount" inputmode="decimal" placeholder="3500"></label>
+      <label class="full subOnly">账号 / 手机号（可选，好几个号时用来区分）<input class="input" id="xAcctNo" maxlength="30" placeholder="比如 138 1234 5678、妈妈的号、爱奇艺 大号"></label>
       <label class="w2">扣款日<input class="input" id="xDay" inputmode="numeric" maxlength="2" placeholder="几号"></label>
       <label class="w2 loanOnly">总期数<input class="input" id="xTotal" inputmode="numeric" maxlength="3" placeholder="360"></label>
       <label class="w2 loanOnly">已还期数<input class="input" id="xPaid" inputmode="numeric" maxlength="3" placeholder="0"></label>
@@ -800,6 +812,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       <label class="w2 subOnly yearOnly">每年几月<input class="input" id="xMonth" inputmode="numeric" maxlength="2" placeholder="几月"></label>
       <label>扣款方式<select class="input" id="xAccount"></select></label>
       <label>分类<select class="input" id="xCategory"></select></label>
+      <div class="addRow full" id="xNewCatRow" hidden><input class="input" id="xNewCat" maxlength="8" placeholder="新分类，如 话费、会员"><button type="button" class="btn" id="xNewCatAdd">添加</button><button type="button" class="btn" id="xNewCatCancel">取消</button></div>
       <label class="check full"><input type="checkbox" id="xAuto" checked>到扣款日自动记一笔（用信用卡扣的会算进额度）</label>
       <p class="err full" id="fxErr" hidden></p>
       <button type="submit" class="btn go full" id="fxSubmit">添加</button>
@@ -3379,7 +3392,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
         if (done[key]) continue;
         done[key] = 1;
         const e = { id: rid(), cents: it.cents, date: fmt(d.date), category: it.category, platform: plat, account: it.account,
-          note: it.name + (d.period ? ` 第${d.period}期` : ''), createdAt: Date.now(), recur: it.id };
+          note: it.name + (it.acctNo ? `（${it.acctNo}）` : '') + (d.period ? ` 第${d.period}期` : ''), createdAt: Date.now(), recur: it.id };
         if (it.sample) e.sample = true;
         data.expenses.push(e); added++;
       }
@@ -3416,8 +3429,9 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const loanLeft = list.filter((it) => it.kind === 'loan').reduce((s, it) => s + Math.max(0, it.total - loanPaid(it)) * it.cents, 0);
     const cardOwe = S().accounts.filter((a) => a.type === 'credit' && !a.archived).reduce((s, a) => s + Math.max(0, cardStatus(a).used), 0);
     const debt = loanLeft + cardOwe ? `<span class="hint">一共还欠约 <span class="num">${money(loanLeft + cardOwe)}</span>（贷款 <span class="num">${money(loanLeft)}</span> · 信用卡 <span class="num">${money(cardOwe)}</span>）</span>` : '';
-    $('#fxSummary').innerHTML = `<div><span class="lbl">每月固定支出</span><b class="num">${money(loanM + subM)}</b><span class="hint">本月还要扣 ${leftCnt} 笔，共 <span class="num">${money(leftSum)}</span></span>${debt}</div>
-      <div class="r"><span class="lbl">贷款</span><span class="num">${money(loanM)}</span><span class="lbl" style="margin-top:4px">订阅套餐</span><span class="num">${money(subM)}</span></div>`;
+    $('#fxSummary').innerHTML = `<span class="lbl">每月固定支出</span><b class="num">${money(loanM + subM)}</b>
+      <div class="fxSplit"><div><span class="lbl">贷款</span><span class="num">${money(loanM)}</span></div><div><span class="lbl">订阅套餐</span><span class="num">${money(subM)}</span></div></div>
+      <span class="hint">本月还要扣 ${leftCnt} 笔，共 <span class="num">${money(leftSum)}</span></span>${debt}`;
     $('#fxLoanSum').textContent = loanM ? `每月 ${money(loanM)}` : '';
     // 从记录里找“每个月都有一笔同样的钱”
     state.suggList = fxSuggestions();
@@ -3446,7 +3460,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     }).join('') : '<div class="empty"><span>还没有贷款。点右上角“+ 添加”，可以记房贷、车贷、手机分期，会显示还了几期、还剩多少、哪个月还完。</span></div>';
     const subs = list.filter((it) => it.kind === 'sub');
     $('#fxSubs').innerHTML = subs.length ? subs.map((it) => `<button type="button" class="fxItem" data-fx="${esc(it.id)}">
-        <div class="fxTop"><span class="t">${esc(it.name)}${it.sample ? '<span class="tag">示例</span>' : ''}</span><span class="a">${money(it.cents)}<small>/${it.cycle === 'year' ? '年' : '月'}</small></span></div>
+        <div class="fxTop"><span class="t">${esc(it.name)}${it.acctNo ? `<span class="acctNo">${esc(it.acctNo)}</span>` : ''}${it.sample ? '<span class="tag">示例</span>' : ''}</span><span class="a">${money(it.cents)}<small>/${it.cycle === 'year' ? '年' : '月'}</small></span></div>
         <div class="m">${it.cycle === 'year' ? `每年 ${it.month} 月 ${it.day} 号` : `每月 ${it.day} 号`} · ${acct(it)} · ${whenText(it)}</div>
       </button>`).join('') : '<div class="empty"><span>还没有订阅或套餐。手机套餐、宽带、视频会员这类每月或每年自动扣的钱都可以加进来。</span></div>';
   }
@@ -3458,6 +3472,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $$('#fxForm .loanOnly').forEach((l) => { l.hidden = k !== 'loan'; });
     $$('#fxForm .subOnly').forEach((l) => { l.hidden = k !== 'sub'; });
     $$('#fxForm .yearOnly').forEach((l) => { l.hidden = k !== 'sub' || $('#xCycle').value !== 'year'; });
+    $('#fxForm').classList.toggle('subMonth', k === 'sub' && $('#xCycle').value !== 'year'); // 每月：扣款日和周期各占一半，不留空
     $('#xName').placeholder = k === 'loan' ? '房贷' : '手机套餐';
     $('#xAmount').placeholder = k === 'loan' ? '3500' : '59';
     $('#fxTpl').innerHTML = FX_TPL.filter((x) => x[0] === k).map((x) => `<button type="button" class="chip" data-tpl="${esc(x[1])}" data-cat="${esc(x[2])}">${esc(x[1])}</button>`).join('');
@@ -3465,8 +3480,30 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   function fillFxSelects(it) {
     const accts = S().accounts.filter((a) => !a.archived || (it && a.id === it.account));
     $('#xAccount').innerHTML = accts.map((a) => `<option value="${esc(a.id)}">${esc(accountLabel(a.id))}</option>`).join('');
-    $('#xCategory').innerHTML = S().categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('');
+    $('#xCategory').innerHTML = S().categories.map((c) => `<option value="${esc(c)}">${esc(c)}</option>`).join('') + '<option value="__new">＋ 新分类…</option>';
+    $('#xNewCatRow').hidden = true;
   }
+  // 分类选「＋ 新分类…」：就地添加，加进设置里的分类，以后记账也能用
+  let xCatPrev = '';
+  $('#xCategory').addEventListener('focus', () => { xCatPrev = $('#xCategory').value; });
+  $('#xCategory').addEventListener('change', () => {
+    const sel = $('#xCategory');
+    if (sel.value !== '__new') { xCatPrev = sel.value; return; }
+    sel.value = xCatPrev && xCatPrev !== '__new' ? xCatPrev : S().categories[0];
+    $('#xNewCatRow').hidden = false; $('#xNewCat').value = ''; $('#xNewCat').focus();
+  });
+  function xAddCat() {
+    const v = $('#xNewCat').value.trim().replace(/\s+/g, '');
+    if (!v) return toast('先输入分类名');
+    if (!S().categories.includes(v)) { S().categories.push(v); persist(); }
+    const keep = $('#xAccount').value;
+    fillFxSelects(state.fxEditing ? R().find((x) => x.id === state.fxEditing) : null);
+    $('#xAccount').value = keep; $('#xCategory').value = v; xCatPrev = v;
+    toast(`已添加分类「${v}」`);
+  }
+  $('#xNewCatAdd').addEventListener('click', xAddCat);
+  $('#xNewCat').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); xAddCat(); } });
+  $('#xNewCatCancel').addEventListener('click', () => { $('#xNewCatRow').hidden = true; });
   function openFx(id) {
     const it = id ? R().find((x) => x.id === id) : null;
     state.fxEditing = it ? it.id : null; state.fxConfirm = false;
@@ -3476,6 +3513,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $('#fxDelete').hidden = !it; $('#fxDelete').textContent = '删除';
     $('#fxErr').hidden = true;
     $('#xName').value = it ? it.name : '';
+    $('#xAcctNo').value = it && it.acctNo ? it.acctNo : '';
     $('#xAmount').value = it ? (it.cents / 100).toFixed(2).replace(/\.00$/, '') : '';
     $('#xDay').value = it ? it.day : '';
     $('#xTotal').value = it && it.kind === 'loan' ? it.total : '';
@@ -3551,7 +3589,10 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       const t = today0(); const passed = t >= mk(t.getFullYear(), t.getMonth(), +day) ? 1 : 0;
       const fi = monthIdx(t) + passed - +paid;
       it.total = +total; it.firstMonth = `${Math.floor(fi / 12)}-${pad(fi % 12 + 1)}`;
-    } else { it.cycle = cycle; if (cycle === 'year') it.month = +month; }
+    } else {
+      it.cycle = cycle; if (cycle === 'year') it.month = +month;
+      const no = $('#xAcctNo').value.trim(); if (no) it.acctNo = no;
+    }
     if (old) Object.keys(old).forEach((key) => delete old[key]), Object.assign(old, it);
     else R().push(it);
     persist();
