@@ -243,6 +243,16 @@ details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; bac
 .bRow .lbar { height: 8px; }
 .howto { margin: 4px 0 12px; font-size: 14px; }
 .howto p { margin: 8px 0 0; color: var(--ink); line-height: 1.6; }
+.ccTotal { display: flex; flex-direction: column; gap: 6px; }
+.ccTotal .lrow { display: flex; justify-content: space-between; gap: 8px; }
+.ccTotal .lbl { color: var(--muted); font-size: 13px; }
+.ccTotal .big { font-family: var(--f-num); font-size: clamp(26px, 8.5vw, 32px); font-weight: 700; color: var(--jade); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.ccTotal .big.hot { color: var(--warn); }
+.ccTotal .ccGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 4px; }
+.ccTotal .ccGrid > div { display: flex; flex-direction: column; gap: 2px; background: var(--chip); border-radius: 10px; padding: 8px 12px; min-width: 0; }
+.ccTotal .ccGrid .num { font-family: var(--f-num); font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.ccTotal .hint { margin: 2px 0 0; font-size: 12px; }
+.limit .lrow.sub .mini { flex: none; }
 .cardOcr { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
 .cardOcr .hint { font-size: 12px; }
 .cardOcr .note { margin: 0; background: var(--jade-soft); color: var(--ink); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.6; }
@@ -846,7 +856,9 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       <label class="w2">尾号<input class="input" id="aLast4" inputmode="numeric" maxlength="4" placeholder="1234"></label>
       <label class="w2 cc">账单日<input class="input" id="aBill" inputmode="numeric" maxlength="2" placeholder="几号"></label>
       <label class="w2 cc">还款日<input class="input" id="aDue" inputmode="numeric" maxlength="2" placeholder="几号"></label>
-      <label class="cc full">信用额度（元）<input class="input" id="aLimit" inputmode="decimal" placeholder="例如 20000，银行 App 里能查到"></label>
+      <label class="cc">信用额度（元）<input class="input" id="aLimit" inputmode="decimal" placeholder="例如 20000"></label>
+      <label class="cc">剩余可用额度（元）<input class="input" id="aAvail" inputmode="decimal" placeholder="银行 App 显示的"></label>
+      <p class="hint cc full" style="margin:-4px 0 0">剩余可用额度填银行 App 里现在显示的数，之后记的账会在它基础上自动加减，比只靠记账推算准。隔一阵对一下就行。</p>
       <p class="err full" id="acctErr" hidden></p>
       <button type="submit" class="btn full" id="acctSubmit">添加支付方式</button>
       <button type="button" class="btn full" id="acctCancel" hidden>取消修改</button>
@@ -1768,7 +1780,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   function cardStatus(a) {
     if (!a.billDay) {
       const t = new Date(); const used = spentIn(a.id, new Date(t.getFullYear(), t.getMonth(), 1), t);
-      return { cur: used, used, avail: a.limitCents ? a.limitCents - used : null };
+      return calibrate(a, { cur: used, used, avail: a.limitCents ? a.limitCents - used : null });
     }
     const c = cycles(a);
     const cur = spentIn(a.id, c.cur.start, c.cur.end);
@@ -1777,7 +1789,24 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const prevPaid = (data.paid || {})[a.id] === fmt(c.prev.end);
     const prevUnpaid = prevLeft >= 0 && !prevPaid && prev > 0;
     const used = cur + (prevUnpaid ? prev : 0);
-    return { c, cur, prev, prevLeft, prevPaid, used, avail: a.limitCents ? a.limitCents - used : null };
+    const st = { c, cur, prev, prevLeft, prevPaid, used, avail: a.limitCents ? a.limitCents - used : null };
+    return calibrate(a, st);
+  }
+  // 按银行 App 显示的“剩余可用额度”校准：以那一刻为准，之后记的消费往下扣、退款和还款往回加。
+  // 卡刷得多、没有每笔都记的时候，比按记录推算准得多
+  function calibrate(a, st) {
+    if (a.availCents == null || !a.limitCents) return st;
+    const ts = a.availTs || 0, d0 = a.availAt || '';
+    let delta = 0;
+    data.expenses.forEach((x) => {
+      if ((x.createdAt || 0) <= ts || x.date < d0) return;
+      if (x.account === a.id) delta += cardVal(x);
+      if (kindOf(x) === 'transfer' && x.toAccount === a.id) delta -= x.cents || 0;
+    });
+    st.avail = a.availCents - delta;
+    st.used = a.limitCents - st.avail;
+    st.calibrated = d0;
+    return st;
   }
   function limitHtml(a, st) {
     if (!a.limitCents) return `<div class="limit none"><span>没有设置信用额度</span><button type="button" class="mini" data-edit-acct="${esc(a.id)}">设置额度</button></div>`;
@@ -1785,7 +1814,8 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const hot = st.avail < 0 || pct >= 80 ? ' hot' : '';
     return `<div class="limit"><div class="lrow"><span>可用额度</span><b class="num${hot}">${st.avail < 0 ? '超出 ' + money(-st.avail) : money(st.avail)}</b></div>
       <div class="lbar${hot}" aria-hidden="true"><i style="width:${pct}%"></i></div>
-      <div class="lrow sub"><span>已用 ${money(st.used)}（${pct}%）</span><span>总额度 ${money(a.limitCents)}</span></div></div>`;
+      <div class="lrow sub"><span>已用 ${money(st.used)}（${pct}%）</span><span>总额度 ${money(a.limitCents)}</span></div>
+      <div class="lrow sub"><span>${st.calibrated ? `按银行 ${md(parse(st.calibrated))} 的剩余额度，加上之后的记账推算` : '按记账推算（没记的消费算不进来）'}</span><button type="button" class="mini" data-edit-acct="${esc(a.id)}" data-focus-avail="1">${st.calibrated ? '更新' : '填银行剩余额度'}</button></div></div>`;
   }
   // 今天刷哪张卡免息期最长：今天的消费进哪一期账单 → 那一期的还款日
   function cardRank() {
@@ -1820,7 +1850,16 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if (withLimit.length) {
       const lim = withLimit.reduce((t, [a]) => t + a.limitCents, 0);
       const av = withLimit.reduce((t, [, st]) => t + st.avail, 0);
-      summary = `<div class="panel total"><div><span class="lbl">信用卡总可用额度</span><b class="num">${money(av)}</b></div><div class="r"><span class="lbl">总额度</span><span class="num">${money(lim)}</span></div></div>`;
+      const used = lim - av, pct = lim ? Math.max(0, Math.min(100, Math.round(used / lim * 100))) : 0;
+      const cal = withLimit.filter(([, st]) => st.calibrated).length, noLim = list.length - withLimit.length;
+      const top = withLimit.slice().sort((x, y) => y[1].avail - x[1].avail)[0];
+      summary = `<div class="panel ccTotal">
+        <div class="lrow"><span class="lbl">${list.length} 张信用卡 · 剩余可用</span><span class="lbl">使用率 ${pct}%</span></div>
+        <b class="num big${pct >= 80 ? ' hot' : ''}">${money(av)}</b>
+        <div class="lbar${pct >= 80 ? ' hot' : ''}" aria-hidden="true"><i style="width:${pct}%"></i></div>
+        <div class="ccGrid"><div><span class="lbl">总额度</span><span class="num">${money(lim)}</span></div><div><span class="lbl">已用</span><span class="num">${money(used)}</span></div></div>
+        <p class="hint">${top && top[1].avail > 0 ? `剩余最多：${esc(accountLabel(top[0].id))} ${money(top[1].avail)}。` : ''}${cal < withLimit.length ? `${withLimit.length - cal} 张卡还没填银行的剩余额度，是按记账推算的。` : '每张卡都按银行剩余额度校准过。'}${noLim ? `另有 ${noLim} 张没填额度，不算在内。` : ''}</p>
+      </div>`;
     }
     $('#cards').innerHTML = summary + list.map(([a, st]) => {
       const id = esc(a.id);
@@ -2042,10 +2081,16 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     }
     if (b.dataset.paid) {
       if (!data.paid) data.paid = {};
-      data.paid[b.dataset.paid] = b.dataset.end; persist(); render(); toast('已标记还清，可用额度已恢复'); return;
+      data.paid[b.dataset.paid] = b.dataset.end; persist(); render();
+      const ca = accountOf(b.dataset.paid);
+      toast(ca && ca.availCents != null ? '已标记还清。这张卡按银行剩余额度算，还款后到账了点卡片下面的「更新」填一下新数字' : '已标记还清，可用额度已恢复'); return;
     }
     if (b.dataset.unpaid) { if (data.paid) delete data.paid[b.dataset.unpaid]; persist(); render(); return; }
-    if (b.dataset.editAcct) { go('settings'); startAcctEdit(b.dataset.editAcct); return; }
+    if (b.dataset.editAcct) {
+      go('settings'); startAcctEdit(b.dataset.editAcct);
+      if (b.dataset.focusAvail) setTimeout(() => { const el = $('#aAvail'); el.scrollIntoView({ block: 'center' }); el.focus(); el.select(); }, 80);
+      return;
+    }
     if (b.dataset.fkind) { state.fkind = b.dataset.fkind; formError(''); renderAdd(); arrangeHome(); return; }
     if (b.dataset.act === 'moreToggle') { state.moreOpen = $('#moreBox').hidden; arrangeHome(); return; }
     if (b.dataset.act === 'inboxToggle') { state.inboxOpen = !state.inboxOpen; arrangeHome(); return; }
@@ -2191,19 +2236,31 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const name = $('#aName').value.trim(), type = $('#aType').value, last4 = $('#aLast4').value.trim();
     const bill = $('#aBill').value.trim(), due = $('#aDue').value.trim();
     const lim = $('#aLimit').value.trim().replace(/[,，\s¥￥元]/g, '');
+    const av = $('#aAvail').value.trim().replace(/[,，\s¥￥元]/g, '');
     const okDay = (v) => v === '' || (/^\d{1,2}$/.test(v) && +v >= 1 && +v <= 31);
     let msg = '';
     if (!name) msg = '请填写名称，例如“招商银行信用卡”';
     else if (last4 && !/^\d{4}$/.test(last4)) msg = '尾号填 4 位数字，或者留空';
     else if (type === 'credit' && (!okDay(bill) || !okDay(due))) msg = '账单日和还款日填 1–31 的数字';
     else if (type === 'credit' && lim && !/^\d+(\.\d{1,2})?$/.test(lim)) msg = '额度填数字，例如 20000';
+    else if (type === 'credit' && av && !/^-?\d+(\.\d{1,2})?$/.test(av)) msg = '剩余可用额度填数字，例如 15000';
+    else if (type === 'credit' && av && !lim) msg = '填了剩余额度，也要填总的信用额度';
+    else if (type === 'credit' && av && +av > +lim) msg = '剩余可用额度不能比信用额度还多';
     err.textContent = msg; err.hidden = !msg; if (msg) return;
     const f = { name, type };
     if (last4) f.last4 = last4;
     if (type === 'credit') { if (bill) f.billDay = +bill; if (due) f.dueDay = +due; if (lim && +lim > 0) f.limitCents = Math.round(Number(lim) * 100); }
+    // 银行剩余额度：数字没变就保留原来的校准时间，变了就以现在为准
+    const old = state.editingAcct ? accountOf(state.editingAcct) : null;
+    if (type === 'credit' && av !== '' && f.limitCents) {
+      const cents = Math.round(Number(av) * 100);
+      const cur = old && old.availCents != null ? cardStatus(old).avail : null;
+      if (cur === cents && old) { f.availCents = old.availCents; f.availAt = old.availAt; f.availTs = old.availTs; }
+      else { f.availCents = cents; f.availAt = today(); f.availTs = Date.now(); }
+    }
     if (state.editingAcct) {
       const a = accountOf(state.editingAcct);
-      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents'].forEach((k) => { delete a[k]; }); Object.assign(a, f); markOcrPaid(a); }
+      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents', 'availCents', 'availAt', 'availTs'].forEach((k) => { delete a[k]; }); Object.assign(a, f); markOcrPaid(a); }
       persist(); resetAcctForm(); toast(`已保存 ${name}`); render();
       return;
     }
@@ -2232,9 +2289,13 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if ((m = flat.match(/(?:账单日|出账日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:\d{1,2}[月\-\/])?(\d{1,2})日?/))) out.billDay = +m[1];
     if ((m = flat.match(/(\d{1,2})月(\d{1,2})日?(?:到期|前还款)/) || flat.match(/(?:最后还款日|到期还款日|还款日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:(\d{1,2})[月\-\/])?(\d{1,2})/))) out.dueDay = +m[2];
     if ((m = flat.match(new RegExp('(?:信用额度|总额度|固定额度|授信额度)[:：]?' + AMT)))) out.limit = num(m[1]);
-    if ((m = flat.match(new RegExp('(?:剩余可用额度|可用额度)[:：]?' + AMT)))) out.avail = num(m[1]);
+    // “额度”常被认成“额钳”“额庭”，只认“可用额”后面一个字随便
+    if ((m = flat.match(new RegExp('可用额.?[:：]?' + AMT)))) out.avail = num(m[1]);
     if ((m = flat.match(new RegExp('本期账单(?:金额)?[:：]?' + AMT)))) out.stmt = num(m[1]);
-    if ((m = flat.match(new RegExp('(?:剩余应还|本期剩余应还|未还金额)[^¥\\d]*(?:\\d{1,2}月\\d{1,2}日到期)?' + AMT)))) out.left = num(m[1]);
+    if ((m = flat.match(new RegExp('最低应?还(?:款)?(?:金额)?[:：]?' + AMT)))) out.minDue = num(m[1]);
+    // 剩余应还：金额紧跟在“到期”或“剩余应还”后面（大字号那行有时认不出来，宁可不填也不乱猜）
+    if ((m = flat.match(/(?:剩余应还|本期剩余应还|未还金额)(?:\|?\d{1,2}月\d{1,2}日到期)?¥(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?|\d+(?:\.\d{1,2})?)/))) out.left = num(m[1]);
+    if (out.left == null && out.minDue === 0 && out.stmt > 0) out.left = 0; // 最低还款是 0，说明这期已经还清了
     [['billDay'], ['dueDay']].forEach(([k]) => { if (out[k] && (out[k] < 1 || out[k] > 31)) delete out[k]; });
     return out;
   }
@@ -2249,6 +2310,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       ocrProgress = null;
       const w = await ensureOcr();
       const res = await w.recognize(await prepImage(f));
+      window.__cardRaw = res.data.text; // 调试用
       const p = parseCardText(res.data.text);
       if (!p.bank && !p.last4 && !p.billDay && !p.dueDay) { say('没认出这张卡的信息。换一张能看到<b>银行名、卡号尾号、账单日、还款日</b>的截图试试。'); return; }
       // 已经添加过同尾号的卡：改成更新这张卡
@@ -2259,14 +2321,22 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (p.last4) $('#aLast4').value = p.last4;
       if (p.billDay) $('#aBill').value = p.billDay;
       if (p.dueDay) $('#aDue').value = p.dueDay;
+      // 没写总额度：总额度 = 剩余可用 + 已经占用的。已占用 = 没还的账单 + 出账后新刷的（截图看不到），按银行习惯取整到千位估一个
+      let est = 0;
+      if (!p.limit && p.avail) {
+        const used = p.left > 0 ? p.left : 0;
+        est = Math.ceil((p.avail + used) / 100000) * 100000;
+        $('#aLimit').value = String(est / 100);
+      }
       if (p.limit) $('#aLimit').value = String(p.limit / 100);
+      if (p.avail != null) $('#aAvail').value = String(p.avail / 100);
       state.acctOcrPaid = p.left === 0 && p.stmt > 0;
       const got = [p.bank && p.bank, p.last4 && `尾号 ${p.last4}`, p.billDay && `每月 ${p.billDay} 号出账`, p.dueDay && `${p.dueDay} 号还款`, p.limit && `额度 ${money(p.limit)}`].filter(Boolean);
-      const miss = [!p.billDay && '账单日', !p.dueDay && '还款日', !p.limit && '信用额度'].filter(Boolean);
+      const miss = [!p.billDay && '账单日', !p.dueDay && '还款日', !p.limit && !est && '信用额度'].filter(Boolean);
       let t = `认出：${got.map(esc).join('，')}。`;
       if (p.stmt != null) t += `本期账单 ${money(p.stmt)}${p.left === 0 ? '，已经还清' : p.left > 0 ? `，还剩 ${money(p.left)} 没还` : ''}。`;
       if (miss.length) t += `<br>还差 <b>${miss.join('、')}</b>，补上就行。`;
-      if (!p.limit && p.avail) t += `截图里只有剩余可用额度 ${money(p.avail)}，总额度在银行 App 的「额度管理」里能看到。`;
+      if (est) t += `<br>截图里没有总额度，按 剩余可用 ${money(p.avail)}${p.left > 0 ? ` + 未还 ${money(p.left)}` : ''} 估算为 <b>${money(est)}</b>（出账后新刷的钱截图里看不到，所以是估的）。不对的话改一下，准确数字在银行 App 的「额度管理」里。`;
       t += same ? '<br>这张卡之前加过了，已经切换成修改它，核对后点「保存修改」。' : '<br>核对一下，点「添加支付方式」。';
       say(t);
       $('#acctForm').scrollIntoView({ block: 'center' });
@@ -2277,7 +2347,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   });
   function resetAcctForm() {
     state.editingAcct = null;
-    ['#aName', '#aLast4', '#aBill', '#aDue', '#aLimit'].forEach((k) => { $(k).value = ''; });
+    ['#aName', '#aLast4', '#aBill', '#aDue', '#aLimit', '#aAvail'].forEach((k) => { $(k).value = ''; });
     $('#acctSubmit').textContent = '添加支付方式'; $('#acctCancel').hidden = true; $('#acctErr').hidden = true;
   }
   function startAcctEdit(id) {
@@ -2286,6 +2356,8 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $('#aName').value = a.name; $('#aType').value = a.type; $('#aLast4').value = a.last4 || '';
     $('#aBill').value = a.billDay || ''; $('#aDue').value = a.dueDay || '';
     $('#aLimit').value = a.limitCents ? String(a.limitCents / 100) : '';
+    // 校准过的显示“现在”的剩余额度（银行数 + 之后的记账），没校准过的留空，免得把推算值当成银行数
+    $('#aAvail').value = a.type === 'credit' && a.availCents != null && a.limitCents ? String(cardStatus(a).avail / 100) : '';
     syncTypeFields();
     $('#acctSubmit').textContent = '保存修改'; $('#acctCancel').hidden = false; $('#acctErr').hidden = true;
     $('#acctForm').scrollIntoView({ block: 'center' });
