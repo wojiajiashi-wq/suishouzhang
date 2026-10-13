@@ -165,6 +165,16 @@ details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; bac
 .dayHead .num { color: var(--ink); }
 .item { width: 100%; border: 0; background: transparent; display: grid; grid-template-columns: 38px minmax(0, 1fr) auto; gap: 12px; align-items: center; padding: 9px 2px; text-align: left; border-radius: 10px; }
 .item:active { background: var(--chip); }
+.swipe { position: relative; overflow: hidden; border-radius: 10px; transition: max-height .22s, opacity .22s; max-height: 120px; }
+.swipe .item { position: relative; z-index: 1; background: var(--surface); touch-action: pan-y; transition: transform .25s cubic-bezier(.2, .8, .2, 1); }
+.swipe .item:active { background: var(--chip); }
+.swipe .item.editing { background: var(--seal-soft); }
+.swActs { position: absolute; top: 0; right: 0; bottom: 0; display: flex; }
+.swActs button { width: 74px; border: 0; color: #fff; font-size: 15px; font-weight: 600; }
+.swEdit { background: #8e8e93; }
+.swDel { background: #ff3b30; }
+.swipe:not(.open) .swActs { visibility: hidden; }
+.swipe.gone { max-height: 0; opacity: 0; }
 .item.editing { background: var(--seal-soft); }
 .glyph { width: 38px; height: 38px; border-radius: 10px; display: grid; place-items: center; font-family: var(--f-display); font-size: 16px; background: var(--chip); }
 .item .t { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -233,6 +243,9 @@ details pre { white-space: pre-wrap; word-break: break-all; font-size: 12px; bac
 .bRow .lbar { height: 8px; }
 .howto { margin: 4px 0 12px; font-size: 14px; }
 .howto p { margin: 8px 0 0; color: var(--ink); line-height: 1.6; }
+.cardOcr { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.cardOcr .hint { font-size: 12px; }
+.cardOcr .note { margin: 0; background: var(--jade-soft); color: var(--ink); border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.6; }
 #ocrBatch { margin-top: 12px; display: flex; flex-direction: column; gap: 10px; }
 .lbList { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
 .lbRow { display: grid; grid-template-columns: 22px minmax(0, 1fr) 96px; gap: 6px 8px; align-items: center; padding: 10px 0; border-bottom: 1px solid var(--line); }
@@ -808,6 +821,12 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
   <section class="panel">
     <div class="phead"><h2>支付方式</h2></div>
     <div id="acctList"></div>
+    <div class="cardOcr">
+      <button type="button" class="btn wide" id="acctOcrBtn">📷 截图识别信用卡</button>
+      <span class="hint">在银行 App 或云闪付里打开这张卡的账单 / 还款页截图，自动填好卡名、尾号、账单日、还款日、额度</span>
+      <input type="file" id="acctOcrFile" accept="image/*" hidden>
+      <p class="note" id="acctOcrMsg" hidden></p>
+    </div>
     <form class="sform" id="acctForm" novalidate>
       <label>名称<input class="input" id="aName" placeholder="招商银行信用卡" maxlength="20"></label>
       <label>类型<select class="input" id="aType"><option value="credit">信用卡</option><option value="debit">储蓄卡</option><option value="wallet">余额 / 钱包</option><option value="cash">现金</option></select></label>
@@ -1349,10 +1368,12 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     const sub = [origText(x), x.aa && x.aa.n > 1 ? `我的 ${money(Math.round(x.cents / x.aa.n))}` : ''].filter(Boolean).join(' · ');
     const small = sub ? `<small>${esc(sub)}</small>` : '';
     const amt = k === 'income' || k === 'refund' ? `<span class="a inc">+${money(x.cents)}${small}</span>` : k === 'transfer' ? `<span class="a tr">${money(x.cents)}${small}</span>` : `<span class="a">${money(x.cents)}${small}</span>`;
-    return `<button type="button" class="item${state.editing === x.id ? ' editing' : ''}" data-id="${esc(x.id)}">
+    // 左滑露出「编辑」「删除」
+    return `<div class="swipe"><div class="swActs"><button type="button" class="swEdit" data-sw-edit="${esc(x.id)}" tabindex="-1">编辑</button><button type="button" class="swDel" data-sw-del="${esc(x.id)}" tabindex="-1">删除</button></div>
+      <button type="button" class="item${state.editing === x.id ? ' editing' : ''}" data-id="${esc(x.id)}">
       ${k === 'transfer' ? catIcon('', { key: 'transfer' }) : k === 'refund' ? catIcon('', { key: 'refund' }) : catIcon(x.category || glyph)}
       <span style="min-width:0"><div class="t">${esc(title)}${tags}</div><div class="m">${meta}</div></span>
-      ${amt}</button>`;
+      ${amt}</button></div>`;
   }
   // ---------- 预算 ----------
   function budgetStats(y, m) {
@@ -1958,6 +1979,40 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     toast('已删除', gone ? () => { data.expenses.push(gone); persist(); render(); toast('已恢复'); } : null);
   });
 
+  // ---------- 左滑：编辑 / 删除（和 iPhone 自带 App 一样） ----------
+  const SW_W = 148;
+  let sw = null, swOpen = null, swTapBlock = 0;
+  const swSet = (row, x, anim) => { const it = row.querySelector('.item'); it.style.transition = anim ? '' : 'none'; it.style.transform = x ? `translateX(${x}px)` : ''; row.classList.toggle('open', x < 0); };
+  function swClose() { if (swOpen && swOpen.isConnected) swSet(swOpen, 0, true); swOpen = null; }
+  document.addEventListener('pointerdown', (ev) => {
+    const row = ev.target.closest('.swipe');
+    if (swOpen && row !== swOpen && !ev.target.closest('.swActs')) { swClose(); swTapBlock = Date.now(); } // 点别处先收回
+    if (!row || ev.target.closest('.swActs') || (ev.pointerType === 'mouse' && ev.button !== 0)) return;
+    sw = { row, x0: ev.clientX, y0: ev.clientY, base: row === swOpen ? -SW_W : 0, dx: 0, on: false };
+  });
+  document.addEventListener('pointermove', (ev) => {
+    if (!sw) return;
+    const dx = ev.clientX - sw.x0, dy = ev.clientY - sw.y0;
+    if (!sw.on) {
+      if (Math.abs(dx) < 10) return;
+      if (Math.abs(dy) > Math.abs(dx) * 0.8) { sw = null; return; } // 上下滑是在翻列表
+      sw.on = true;
+    }
+    sw.dx = dx;
+    let x = sw.base + dx;
+    if (x > 0) x = 0; else if (x < -SW_W) x = -SW_W - (-SW_W - x) * 0.3; // 拉过头有阻尼
+    swSet(sw.row, x, false);
+  });
+  const swEnd = () => {
+    if (!sw) return; const s = sw; sw = null;
+    if (!s.on) return;
+    swTapBlock = Date.now(); // 这次松手不算点击
+    if (s.base + s.dx < -SW_W / 3) { if (swOpen && swOpen !== s.row) swClose(); swSet(s.row, -SW_W, true); swOpen = s.row; }
+    else { swSet(s.row, 0, true); if (swOpen === s.row) swOpen = null; }
+  };
+  document.addEventListener('pointerup', swEnd);
+  document.addEventListener('pointercancel', swEnd);
+
   // ---------- 点击事件 ----------
   document.addEventListener('click', (ev) => {
     const b = ev.target.closest('button');
@@ -2014,7 +2069,25 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if (b.dataset.goalDep || b.dataset.goalWd) { state.goalForm = null; state.goalDep = { id: b.dataset.goalDep || b.dataset.goalWd, mode: b.dataset.goalDep ? 'dep' : 'wd' }; renderGoals(); setTimeout(() => { const i = $('#gAmt'); if (i) i.focus(); }, 30); return; }
     if (b.dataset.goalEdit) { state.goalDep = null; state.goalForm = { id: b.dataset.goalEdit }; renderGoals(); return; }
     if (b.dataset.k && b.closest('#form')) { state.sel[b.dataset.k] = b.dataset.v; if (!state.editing) savePrefs(); renderAdd(); arrangeHome(); return; }
-    if (b.classList.contains('item')) { startEdit(b.dataset.id); return; }
+    if (b.dataset.swEdit) { swOpen = null; startEdit(b.dataset.swEdit); return; }
+    if (b.dataset.swDel) {
+      const id = b.dataset.swDel, gone = data.expenses.find((e) => e.id === id);
+      const row = b.closest('.swipe'); swOpen = null;
+      const done = () => {
+        data.expenses = data.expenses.filter((e) => e.id !== id);
+        if (state.editing === id) resetForm();
+        persist(); render();
+        toast('已删除', gone ? () => { data.expenses.push(gone); persist(); render(); toast('已恢复'); } : null);
+      };
+      if (row) { row.classList.add('gone'); setTimeout(done, 220); } else done();
+      return;
+    }
+    if (b.classList.contains('item')) {
+      const row = b.closest('.swipe');
+      if (Date.now() - swTapBlock < 450) return; // 刚滑完（或刚收回别的行）松手带出的点击，不算
+      if (row && row === swOpen) { swClose(); return; } // 滑开时点一下只是收回
+      startEdit(b.dataset.id); return;
+    }
     if (b.dataset.cal) { state.calSel = state.calSel === b.dataset.cal ? null : b.dataset.cal; renderList(); return; }
     if (b.dataset.calAdd) { resetForm(); go('add'); $('#fDate').value = b.dataset.calAdd; syncDq(); setTimeout(() => $('#fAmount').focus(), 50); return; }
     if (b.dataset.dk) { state.distKind = b.dataset.dk; state.filter = null; renderList(); return; }
@@ -2117,15 +2190,77 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     if (type === 'credit') { if (bill) f.billDay = +bill; if (due) f.dueDay = +due; if (lim && +lim > 0) f.limitCents = Math.round(Number(lim) * 100); }
     if (state.editingAcct) {
       const a = accountOf(state.editingAcct);
-      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents'].forEach((k) => { delete a[k]; }); Object.assign(a, f); }
+      if (a) { ['last4', 'billDay', 'dueDay', 'limitCents'].forEach((k) => { delete a[k]; }); Object.assign(a, f); markOcrPaid(a); }
       persist(); resetAcctForm(); toast(`已保存 ${name}`); render();
       return;
     }
     const a = Object.assign({ id: rid() }, f);
-    S().accounts.push(a); persist();
+    S().accounts.push(a); markOcrPaid(a); persist();
     state.sel.account = a.id; savePrefs();
     resetAcctForm();
     toast(`已添加 ${name}`); render();
+  });
+  // 截图里显示上期账单已经还清（剩余应还 0），保存后顺手标记，免得首页提醒还款
+  function markOcrPaid(a) {
+    const p = state.acctOcrPaid; state.acctOcrPaid = null;
+    if (!p || !a || a.type !== 'credit' || !a.billDay || !a.dueDay) return;
+    const st = cardStatus(a);
+    if (st.c && st.prev > 0 && !st.prevPaid) { data.paid = data.paid || {}; data.paid[a.id] = fmt(st.c.prev.end); }
+  }
+  // ---------- 截图识别信用卡 ----------
+  function parseCardText(raw) {
+    const s = normText(raw), flat = s.replace(/\s+/g, '').replace(/[Y#]\s*(?=\d)/g, '¥');
+    const num = (v) => Math.round(parseFloat(v.replace(/,/g, '')) * 100);
+    const AMT = '¥?(\\d{1,3}(?:,\\d{3})+(?:\\.\\d{1,2})?|\\d+(?:\\.\\d{1,2})?)';
+    const out = {};
+    let m = flat.match(/([一-鿿]{2,8}?银行)/);
+    if (m) out.bank = m[1].replace(/^.*(?=(中国|招商|工商|建设|农业|交通|光大|民生|兴业|浦发|中信|华夏|广发|平安|邮储|北京|上海|宁波|江苏|浙商|南京|杭州)[一-鿿]*银行$)/, '');
+    if ((m = flat.match(/[\[【(]\s*(\d{4})\s*[\]】)]/) || flat.match(/(?:尾号|末四位|卡号后四位)[:为是]?(\d{4})/) || flat.match(/\*{2,}\s*(\d{4})/))) out.last4 = m[1];
+    if ((m = flat.match(/(?:账单日|出账日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:\d{1,2}[月\-\/])?(\d{1,2})日?/))) out.billDay = +m[1];
+    if ((m = flat.match(/(\d{1,2})月(\d{1,2})日?(?:到期|前还款)/) || flat.match(/(?:最后还款日|到期还款日|还款日)[:：]?(?:每月)?(?:\d{4}[年\-\/])?(?:(\d{1,2})[月\-\/])?(\d{1,2})/))) out.dueDay = +m[2];
+    if ((m = flat.match(new RegExp('(?:信用额度|总额度|固定额度|授信额度)[:：]?' + AMT)))) out.limit = num(m[1]);
+    if ((m = flat.match(new RegExp('(?:剩余可用额度|可用额度)[:：]?' + AMT)))) out.avail = num(m[1]);
+    if ((m = flat.match(new RegExp('本期账单(?:金额)?[:：]?' + AMT)))) out.stmt = num(m[1]);
+    if ((m = flat.match(new RegExp('(?:剩余应还|本期剩余应还|未还金额)[^¥\\d]*(?:\\d{1,2}月\\d{1,2}日到期)?' + AMT)))) out.left = num(m[1]);
+    [['billDay'], ['dueDay']].forEach(([k]) => { if (out[k] && (out[k] < 1 || out[k] > 31)) delete out[k]; });
+    return out;
+  }
+  window.__parseCardText = parseCardText; // 调试用
+  $('#acctOcrBtn').addEventListener('click', () => $('#acctOcrFile').click());
+  $('#acctOcrFile').addEventListener('change', async (ev) => {
+    const f = ev.target.files && ev.target.files[0]; ev.target.value = '';
+    if (!f || ocrBusy) return;
+    const msg = $('#acctOcrMsg'), say = (t) => { msg.innerHTML = t; msg.hidden = false; };
+    ocrBusy = true; say('正在识别…（第一次要下载识别组件，稍等一下）');
+    try {
+      ocrProgress = null;
+      const w = await ensureOcr();
+      const res = await w.recognize(await prepImage(f));
+      const p = parseCardText(res.data.text);
+      if (!p.bank && !p.last4 && !p.billDay && !p.dueDay) { say('没认出这张卡的信息。换一张能看到<b>银行名、卡号尾号、账单日、还款日</b>的截图试试。'); return; }
+      // 已经添加过同尾号的卡：改成更新这张卡
+      const same = p.last4 && S().accounts.find((a) => !a.archived && a.last4 === p.last4);
+      if (same) startAcctEdit(same.id); else resetAcctForm();
+      $('#aType').value = 'credit'; syncTypeFields();
+      if (!same || !$('#aName').value) $('#aName').value = (p.bank || '') + '信用卡';
+      if (p.last4) $('#aLast4').value = p.last4;
+      if (p.billDay) $('#aBill').value = p.billDay;
+      if (p.dueDay) $('#aDue').value = p.dueDay;
+      if (p.limit) $('#aLimit').value = String(p.limit / 100);
+      state.acctOcrPaid = p.left === 0 && p.stmt > 0;
+      const got = [p.bank && p.bank, p.last4 && `尾号 ${p.last4}`, p.billDay && `每月 ${p.billDay} 号出账`, p.dueDay && `${p.dueDay} 号还款`, p.limit && `额度 ${money(p.limit)}`].filter(Boolean);
+      const miss = [!p.billDay && '账单日', !p.dueDay && '还款日', !p.limit && '信用额度'].filter(Boolean);
+      let t = `认出：${got.map(esc).join('，')}。`;
+      if (p.stmt != null) t += `本期账单 ${money(p.stmt)}${p.left === 0 ? '，已经还清' : p.left > 0 ? `，还剩 ${money(p.left)} 没还` : ''}。`;
+      if (miss.length) t += `<br>还差 <b>${miss.join('、')}</b>，补上就行。`;
+      if (!p.limit && p.avail) t += `截图里只有剩余可用额度 ${money(p.avail)}，总额度在银行 App 的「额度管理」里能看到。`;
+      t += same ? '<br>这张卡之前加过了，已经切换成修改它，核对后点「保存修改」。' : '<br>核对一下，点「添加支付方式」。';
+      say(t);
+      $('#acctForm').scrollIntoView({ block: 'center' });
+      if (!p.limit) setTimeout(() => $('#aLimit').focus(), 50);
+    } catch (e) {
+      say(navigator.onLine === false ? '识别组件还没下载过，第一次使用需要联网。' : '识别没有完成，请检查网络后再试一次。');
+    } finally { ocrBusy = false; }
   });
   function resetAcctForm() {
     state.editingAcct = null;
@@ -2143,7 +2278,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $('#acctForm').scrollIntoView({ block: 'center' });
     setTimeout(() => $(a.type === 'credit' && !a.limitCents ? '#aLimit' : '#aName').focus(), 50);
   }
-  $('#acctCancel').addEventListener('click', resetAcctForm);
+  $('#acctCancel').addEventListener('click', () => { state.acctOcrPaid = null; $('#acctOcrMsg').hidden = true; resetAcctForm(); });
   $('#v-settings').addEventListener('click', (ev) => {
     const b = ev.target.closest('button'); if (!b) return;
     const s = S();
@@ -2425,6 +2560,11 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       return c;
     } finally { URL.revokeObjectURL(url); }
   }
+  async function ensureOcr() {
+    if (!window.Tesseract) await loadScript(TESS_URL);
+    if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('chi_sim+eng', 1, { logger: (m) => { if (ocrProgress) ocrProgress(m); } });
+    return ocrWorker;
+  }
   async function runOcr(file) {
     if (ocrBusy) return; ocrBusy = true;
     $('#pastePanel').hidden = true; showOcr(true);
@@ -2438,8 +2578,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     };
     setStatus(ocrWorker ? '正在识别文字…' : '正在加载识别组件…', 0.03);
     try {
-      if (!window.Tesseract) await loadScript(TESS_URL);
-      if (!ocrWorker) ocrWorker = await window.Tesseract.createWorker('chi_sim+eng', 1, { logger: (m) => { if (ocrProgress) ocrProgress(m); } });
+      await ensureOcr();
       const canvas = await prepImage(file);
       const res = await ocrWorker.recognize(canvas);
       const items = listItems(res);
@@ -2560,9 +2699,9 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     $('#ocrResult').innerHTML = '';
     $('#ocrRaw').textContent = String(raw || '').trim() || '（没有识别到文字）';
     $('#ocrRawWrap').hidden = !raw;
-    renderList();
+    renderLb();
   }
-  function renderList() {
+  function renderLb() {
     const lb = state.lb; if (!lb) return;
     const cats = S().categories, ic = S().incomeCats;
     const opt = (list, v) => list.map((c) => `<option${c === v ? ' selected' : ''}>${esc(c)}</option>`).join('');
@@ -2598,7 +2737,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     else if (f === 'date') { if (t.value) { r.date = t.value; r.dateGuess = false; t.classList.remove('warn'); } }
     else if (f === 'memo') r.memo = t.value.trim();
     else if (f === 'category') {
-      if (t.value === '__new') { t.value = r.category; r.addCat = true; renderList(); const el = $(`.lbRow[data-i="${row.dataset.i}"] [data-lb="newcat"]`); if (el) el.focus(); }
+      if (t.value === '__new') { t.value = r.category; r.addCat = true; renderLb(); const el = $(`.lbRow[data-i="${row.dataset.i}"] [data-lb="newcat"]`); if (el) el.focus(); }
       else r.category = t.value;
     }
   });
@@ -2612,7 +2751,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     r.category = v; r.addCat = false;
     // 同一家的其他几笔也改成这个分类
     state.lb.rows.forEach((x) => { if (x !== r && x.note && x.note === r.note && x.kind !== 'income') x.category = v; });
-    renderList(); toast(`已添加分类「${v}」`);
+    renderLb(); toast(`已添加分类「${v}」`);
   }
   $('#ocrBatch').addEventListener('keydown', (ev) => {
     if (ev.key === 'Enter' && ev.target.dataset.lb === 'newcat') { ev.preventDefault(); lbAddCat(ev.target.closest('.lbRow')); }
@@ -2664,7 +2803,7 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
       if (!items.length) throw new Error('empty');
       const res = buildListRows(items, $('#ocrRaw').textContent);
       state.lb = Object.assign(res, { file: lb.file, account: lb.account, ai: true });
-      renderList();
+      renderLb();
     } catch (e) {
       setStatus(e && e.message && !/JSON|Unexpected|empty/.test(e.message) ? e.message : 'AI 没认出来，先用上面的结果核对一下吧。', null);
     } finally { ocrBusy = false; }
@@ -2675,9 +2814,9 @@ body.privacy :is(.dcenter b, .cright) { filter: blur(7px); }
     else if (b.dataset.act === 'lbCancel') { state.lb = null; $('#ocrBatch').hidden = true; showOcr(false); }
     else if (b.dataset.act === 'lbAi') aiList();
     else if (b.dataset.act === 'lbCatAdd') lbAddCat(b.closest('.lbRow'));
-    else if (b.dataset.act === 'lbCatCancel') { state.lb.rows[+b.closest('.lbRow').dataset.i].addCat = false; renderList(); }
+    else if (b.dataset.act === 'lbCatCancel') { state.lb.rows[+b.closest('.lbRow').dataset.i].addCat = false; renderLb(); }
     else if (b.dataset.act === 'lbMemo') {
-      const i = b.closest('.lbRow').dataset.i; state.lb.rows[+i].memoOpen = true; renderList();
+      const i = b.closest('.lbRow').dataset.i; state.lb.rows[+i].memoOpen = true; renderLb();
       const el = $(`.lbRow[data-i="${i}"] [data-lb="memo"]`); if (el) el.focus();
     }
   });
